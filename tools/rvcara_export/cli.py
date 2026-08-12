@@ -167,6 +167,7 @@ def export_model(arguments: argparse.Namespace, repository_root: Path) -> Path:
         name=checkpoint.name,
         modelSampleRate=checkpoint.sample_rate,
         featureDim=checkpoint.feature_dim,
+        latentDim=int(checkpoint.config[2]),
         numSpeakers=checkpoint.num_speakers,
         speakerId=arguments.speaker_id,
         upsampleFactor=checkpoint.upsample_factor,

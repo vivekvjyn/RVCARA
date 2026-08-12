@@ -31,6 +31,7 @@ class ModelManifest:
     :ivar name: Voice name, shown in the plugin's model browser.
     :ivar modelSampleRate: Rate the vocoder synthesises at, in hertz.
     :ivar featureDim: Width of the content-encoder output.
+    :ivar latentDim: Width of the vocoder's latent, and so of the noise it is fed.
     :ivar numSpeakers: Size of the speaker embedding table.
     :ivar speakerId: Which speaker to synthesise; single-speaker models use 0.
     :ivar upsampleFactor: Output samples per conditioning frame.
@@ -48,6 +49,7 @@ class ModelManifest:
     name: str
     modelSampleRate: int
     featureDim: int
+    latentDim: int
     numSpeakers: int
     speakerId: int
     upsampleFactor: int
@@ -68,6 +70,7 @@ class ModelManifest:
             "name": self.name,
             "modelSampleRate": self.modelSampleRate,
             "featureDim": self.featureDim,
+            "latentDim": self.latentDim,
             "numSpeakers": self.numSpeakers,
             "speakerId": self.speakerId,
             "upsampleFactor": self.upsampleFactor,
@@ -108,25 +111,42 @@ HIGH_PASS_CUTOFF_HZ = 48.0
 
 
 def build_high_pass_description(sample_rate: int) -> dict[str, Any]:
-    """Return the high-pass filter's coefficients and shape.
+    """Return the high-pass filter as second-order sections.
 
-    Shipping the coefficients rather than a cutoff means the engine does not have
-    to reimplement Butterworth design and cannot round it differently to SciPy.
+    Shipping designed coefficients rather than a cutoff frequency means the engine
+    does not reimplement Butterworth design and cannot round it differently to
+    SciPy. They are second-order sections rather than one transfer function because
+    a fifth-order direct-form IIR is badly conditioned — the cascade keeps every
+    pole pair in its own biquad, where single precision is comfortable.
+
+    Both forms are recorded: the sections are what the engine runs, the transfer
+    function is what ``infer/vc/pipeline.py`` uses and therefore what any
+    discrepancy has to be argued against.
 
     :param sample_rate: Analysis rate the filter runs at, in hertz.
-    :return: Manifest entry with the transfer function's numerator and denominator.
+    :return: Manifest entry describing the filter.
     """
     from scipy import signal
 
+    sections = signal.butter(
+        N=HIGH_PASS_ORDER, Wn=HIGH_PASS_CUTOFF_HZ, btype="high", fs=sample_rate, output="sos"
+    )
     numerator, denominator = signal.butter(
         N=HIGH_PASS_ORDER, Wn=HIGH_PASS_CUTOFF_HZ, btype="high", fs=sample_rate
     )
+
+    # SciPy pads by three times the longest coefficient array before filtering, to
+    # keep the transient out of the signal. Matching it keeps the boundary samples
+    # within 1e-4 of the reference.
+    padLength = 3 * max(len(numerator), len(denominator))
 
     return {
         "order": HIGH_PASS_ORDER,
         "cutoffHz": HIGH_PASS_CUTOFF_HZ,
         "sampleRate": sample_rate,
         "isZeroPhase": True,
+        "padLength": padLength,
+        "sections": [[float(value) for value in section] for section in sections],
         "numerator": [float(value) for value in numerator],
         "denominator": [float(value) for value in denominator],
     }
