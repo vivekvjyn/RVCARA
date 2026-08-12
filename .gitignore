@@ -1,0 +1,44 @@
+# Build trees
+build/
+build-*/
+cmake-build-*/
+out/
+install/
+
+# CMake
+CMakeCache.txt
+CMakeFiles/
+CMakeUserPresets.json
+cmake_install.cmake
+compile_commands.json
+.cmake/
+
+# Third-party binaries fetched at configure time rather than vendored
+third_party/onnxruntime/
+
+# Exported model assets. These are derived artefacts, hundreds of megabytes
+# each; regenerate them with `python -m rvcara_export`.
+assets/models/
+*.onnx
+*.ort
+retrieval.bin
+
+# Python
+.venv/
+venv/
+__pycache__/
+*.py[cod]
+*.egg-info/
+.mypy_cache/
+.pytest_cache/
+.ruff_cache/
+
+# Editors and tooling
+.vscode/
+.idea/
+.cache/
+.DS_Store
+*.swp
+
+# Local render output from the verification pass
+output/

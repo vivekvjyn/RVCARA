@@ -1,0 +1,12 @@
+[submodule "libs/juce"]
+	path = libs/juce
+	url = https://github.com/juce-framework/JUCE.git
+[submodule "libs/ara-sdk"]
+	path = libs/ara-sdk
+	url = https://github.com/Celemony/ARA_SDK.git
+[submodule "libs/hnswlib"]
+	path = libs/hnswlib
+	url = https://github.com/nmslib/hnswlib.git
+[submodule "libs/catch2"]
+	path = libs/catch2
+	url = https://github.com/catchorg/Catch2.git

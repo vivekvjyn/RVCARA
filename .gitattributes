@@ -1,0 +1,67 @@
+# Normalise line endings on the way in, check out LF everywhere. JUCE, CMake and
+# the shell scripts in this repository are all LF-only, and a CRLF checkout of a
+# .sh breaks the CI runners.
+* text=auto eol=lf
+
+# Source, with language-aware diff hunk headers so `git diff` names the enclosing
+# function rather than showing a bare @@ range.
+*.cpp   text diff=cpp
+*.cc    text diff=cpp
+*.h     text diff=cpp
+*.hpp   text diff=cpp
+*.mm    text diff=objc
+*.py    text diff=python
+*.md    text diff=markdown
+*.rst   text
+
+# GitHub reports a bare .h as C. Every header here is C++.
+*.h     linguist-language=C++
+
+# Build and configuration.
+CMakeLists.txt  text
+*.cmake         text
+*.toml          text
+*.yml           text
+*.yaml          text
+*.json          text
+*.clang-format  text
+*.sh            text eol=lf
+*.ps1           text eol=crlf
+*.bat           text eol=crlf
+
+# Model assets. These are the exported inference graphs and the retrieval
+# codebook; they must never be line-ending converted or diffed as text.
+*.onnx  binary
+*.ort   binary
+*.pth   binary
+*.pt    binary
+*.bin   binary
+*.index binary
+*.npy   binary
+*.npz   binary
+*.safetensors binary
+
+# Audio fixtures used by the verification tests.
+*.wav   binary
+*.flac  binary
+*.aiff  binary
+*.ogg   binary
+*.mp3   binary
+
+# Images and fonts.
+*.png   binary
+*.jpg   binary
+*.ico   binary
+*.icns  binary
+*.ttf   binary
+*.otf   binary
+
+# Submodules are third-party code: keep them out of the language statistics and
+# out of GitHub's diff view, and never let a linter claim them.
+libs/** linguist-vendored
+
+# Keep development-only paths out of `git archive` tarballs.
+.github/        export-ignore
+.gitattributes  export-ignore
+.gitignore      export-ignore
+tests/          export-ignore
