@@ -102,8 +102,6 @@ private:
     std::map<juce::ARAAudioSource*, SourceReader> sourceReaders;
 
     double hostSampleRate { 48000.0 };
-    int numOutputChannels { 2 };
-    int maximumBlockSize { 512 };
     bool isAlwaysNonRealtime { false };
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (PlaybackRenderer)

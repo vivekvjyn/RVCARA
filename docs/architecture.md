@@ -2,11 +2,11 @@
 
 ## The pipeline
 
-Converting a region runs seven stages. Each is a transcription of
-`infer/vc/pipeline.py` in the RVC project, mediated by
-`tools/rvcara_export/reference.py` — the NumPy implementation that was checked against
-reference renders before any C++ was written. When the C++ and the reference disagree, that
-Python file is the arbiter.
+Converting a region runs seven stages. Each is a transcription of `infer/vc/pipeline.py` in
+the RVC project, mediated by a NumPy reference implementation that was checked against real
+renders before any C++ was written. That reference lives with the exporter in
+[RTVoice](https://github.com/vivekvjyn/RTVoice); the fixtures it produced are committed under
+`tests/fixtures`, and they are what the golden tests here assert against.
 
 ```
 source audio (host rate, stereo)

@@ -24,7 +24,6 @@ When two conventions conflict, apply the first rule that matches:
 3. **The domain's published term wins over a paraphrase.** `fundamentalFrequency`
    and `cents` are not renamed to something more "programmer-ish"; a reader from
    music information retrieval must recognise them.
-4. **PEP 8** governs everything written in Python (`tools/`).
 
 ## 2. C++ — JUCE house style
 
@@ -50,7 +49,7 @@ Rules that follow from JUCE style and are enforced here:
   long enough that you cannot tell a member from a local, the function is too
   long.
 - **`#pragma once`**, never include guards.
-- **Allman braces, four spaces**, no tabs. Enforced by `.clang-format`.
+- **Allman braces, four spaces**, no tabs.
 - **No `k` prefix on constants.** `kSampleRate` is Google style, not JUCE style.
 - **`num` prefixes counts**, and the plural names a container:
   `numChannels` is a count, `channels` is the collection.
@@ -120,16 +119,16 @@ suffixed accordingly when more than one rate is in scope:
 
 ## 5. Machine learning
 
-C++ identifiers follow §2 — `numFrames`, `featureDim`, not `n_frames`. Only
-three things keep ML's `snake_case`:
+C++ identifiers follow §2 — `numFrames`, `featureDim`, not `n_frames`. Only two
+things keep ML's `snake_case`, and both are data crossing a boundary rather than
+code:
 
 1. **ONNX graph input and output names**, because they are produced by
-   `torch.onnx.export` on the Python side and matched by string in C++. They are
+   `torch.onnx.export` in the exporter and matched by string in C++. They are
    never retyped as literals in C++: the engine binds them through
    `manifest.json`, so a third-party RVC ONNX export with different tensor names
    can be loaded by editing the manifest rather than the source.
-2. **Manifest and checkpoint keys**, which mirror the Python side verbatim.
-3. **Python code in `tools/`**, which is PEP 8 anyway.
+2. **Manifest keys**, which mirror the exporter's spelling verbatim.
 
 Tensor conventions:
 
@@ -215,25 +214,16 @@ is the contract between the two projects — a reader comparing our C++ to
 - Collections are plural (`playbackRegions`); maps read
   `<key>To<value>`: `sourceToConversion`.
 
-## 10. Python (`tools/`)
-
-PEP 8, matching the sibling `RVC` project so the two read as one codebase:
-`snake_case` for modules, functions and variables, `PascalCase` for classes,
-`SCREAMING_SNAKE_CASE` for module constants, type hints on public functions,
-and `"""Imperative one-line docstrings."""`
-
-Names mirror the C++ side where they name the same thing — `export_vocoder` produces the
-artefact the C++ vocoder session loads — so the pipeline is greppable end to end.
-
-## 11. Files, directories and assets
+## 10. Files, directories and assets
 
 - All C++ lives flat in `src/`, in one `rvcara` namespace. An earlier layout split it into
   `dsp/`, `engine/`, `ara/`, `gui/` and `plugin/` with a namespace each; for around forty
   files that was more ceremony than navigation aid, and every cross-layer reference paid for
   it twice — once in the include path and once in the qualification.
 - `res/` holds runtime resources, chiefly the exported voices under `res/models/`.
-- `libs/` holds submodules only.
-- `tools/` holds the Python exporter, which is build-time only and never ships.
+- `libs/` holds submodules only, each named exactly as its upstream repository —
+  `JUCE`, `ARA_SDK`, `hnswlib`, `Catch2` — so it is obvious what a directory is
+  without opening `.gitmodules`.
 - Exported model assets are lowercase with a `snake_case` role:
   `content_encoder.onnx`, `pitch_estimator.onnx`, `vocoder.onnx`,
   `retrieval.bin`, `manifest.json`. They are data read by both languages, so

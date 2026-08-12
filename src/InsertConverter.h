@@ -139,9 +139,6 @@ private:
     */
     void timerCallback() override;
 
-    /** Starts a render of the captured span on the worker pool. */
-    void startRender();
-
     /** Publishes a finished render. Message thread. */
     void completeRender (ConversionPointer conversion, juce::String error);
 
@@ -158,15 +155,6 @@ private:
     */
     std::vector<float> capturedAudio;
     std::vector<float> convertedAudio;
-
-    /** Which granules of @c capturedAudio hold real audio.
-
-        Coarse on purpose — one flag per granule rather than per sample — because the audio
-        thread updates it and the only questions asked of it are "where does the capture
-        start and end".
-    */
-    static constexpr int granuleSizeInSamples = 1024;
-    std::vector<std::uint8_t> capturedGranules;
 
     /** Song position that maps to index zero of the buffers. */
     std::atomic<juce::int64> captureOrigin { 0 };
@@ -195,8 +183,6 @@ private:
 
     mutable juce::CriticalSection settingsLock;
     ConversionSettings settings;
-    ConversionSettings renderedSettings;
-    juce::String renderedVoiceName;
     juce::String errorMessage;
 
     ConversionPointer conversion;

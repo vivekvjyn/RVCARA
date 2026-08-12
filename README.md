@@ -5,8 +5,9 @@ voice, and the vocal is re-sung in that voice — offline, on the CPU, with no P
 time and nothing sent to a server.
 
 The model is [RVC](https://github.com/RVC-Project/Retrieval-based-Voice-Conversion-WebUI)
-v2. Voices are trained with the sibling [RTVoice](https://github.com/vivekvjyn/RTVoice)
-project and converted into inference assets by the exporter in `tools/`.
+v2. Voices are trained and exported with the sibling
+[RTVoice](https://github.com/vivekvjyn/RTVoice) project; this repository is the plug-in
+only, and contains no Python at all.
 
 ## Two ways it runs
 
@@ -45,9 +46,8 @@ model suitable for it.
 ```
 src/     All C++, flat, one rvcara namespace
 res/     Runtime resources; exported voices live in res/models/
-libs/    Submodules: JUCE, ARA SDK, hnswlib, Catch2
-tests/   Catch2 unit tests and cross-language fixtures
-tools/   Python exporter — build time only, never ships
+libs/    Submodules: JUCE, ARA_SDK, hnswlib, Catch2
+tests/   Catch2 unit tests and fixtures
 docs/    Naming conventions and architecture
 ```
 
@@ -58,10 +58,8 @@ plug-in. `DocumentController`, `PlaybackRenderer` and `ConversionModification` a
 path; `InsertConverter` is the non-ARA one; both drive the same engine through the same
 `VoiceLoader`.
 
-**Why there is Python.** `tools/` converts a trained RVC checkpoint into the ONNX graphs and
-binary matrices the plug-in loads. Tracing those networks needs PyTorch, so there is no C++
-route to it. It runs once per voice, on your machine, and the plug-in has no Python
-dependency whatsoever.
+Pure C++ and CMake. No Python, no scripting runtime, nothing interpreted at build time or
+run time.
 
 ## Building
 
@@ -72,7 +70,7 @@ whose own contents are submodules, so the recursive init matters:
 git clone https://github.com/vivekvjyn/RVCARA.git
 cd RVCARA
 git submodule update --init --depth 1
-git -C libs/ara-sdk submodule update --init --depth 1 ARA_API ARA_Library
+git -C libs/ARA_SDK submodule update --init --depth 1 ARA_API ARA_Library
 
 cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=RelWithDebInfo
 cmake --build build
@@ -88,19 +86,12 @@ Artefacts land in `build/RVCARA_artefacts/`, with the ONNX Runtime shared librar
 beside each one.
 
 On Linux, JUCE needs the usual development packages — ALSA, FreeType, Fontconfig, X11 and
-GL. See `libs/juce/docs/Linux Dependencies.md`.
+GL. See `libs/JUCE/docs/Linux Dependencies.md`.
 
-## Preparing a voice
+## Voices
 
-The plug-in loads exported assets, not `.pth` checkpoints. Convert a trained RVC model
-once:
-
-```sh
-cd tools
-python -m rvcara_export female1 --rvc-root ~/Desktop/RVC --verify --verbose
-```
-
-That writes `res/models/female1/` containing:
+The plug-in loads **exported assets**, not `.pth` checkpoints. A voice is a directory under
+`res/models/<name>/` containing:
 
 | File | What it is |
 | --- | --- |
@@ -111,10 +102,11 @@ That writes `res/models/female1/` containing:
 | `retrieval.bin` | The training set's content frames, the timbre codebook |
 | `manifest.json` | Every pipeline constant, plus provenance |
 
-`--verify` converts the reference renders in the RVC project's `output/` directory through
-the exported assets and compares pitch, spectral envelope and duration against them. For
-the reference model that reports pitch agreement within a few cents and correlation above
-0.999.
+Producing that directory from a trained checkpoint requires tracing the networks with
+PyTorch, so it happens in [RTVoice](https://github.com/vivekvjyn/RTVoice) rather than here —
+this repository stays free of Python. The exporter previously lived in `tools/`; it is
+recoverable from history with `git checkout b6ea4bd -- tools` if you need it before it lands
+upstream.
 
 The plug-in searches, in increasing precedence: the shared application data directory, the
 user's application data directory, `res/models` near the binary, and any path in
@@ -170,13 +162,11 @@ weights, so the nearest one or two dominate and a miss in the tail is inaudible.
 
 Honest about what has and has not been checked:
 
-- **Verified.** The exported assets match the reference Python pipeline on real audio:
-  pitch within 1.5–6.8 cents, correlation ≥ 0.999, log-mel distance 0.30–0.60, durations
-  sample-exact. The C++ DSP is checked against NumPy and SciPy through committed fixtures —
-  the mel spectrogram to 1e-3, the zero-phase high-pass to 1e-5. 28 test cases, 847
-  assertions.
-- **Verified.** Every exported graph is run at several awkward input lengths during export,
-  because tracing had silently frozen the vocoder at one frame count.
+- **Verified.** The exported assets match the reference implementation on real audio: pitch
+  within 1.5–6.8 cents, correlation ≥ 0.999, log-mel distance 0.30–0.60, durations
+  sample-exact. The C++ DSP is checked against NumPy and SciPy through the committed
+  fixtures in `tests/fixtures` — the mel spectrogram to 1e-3, the zero-phase high-pass to
+  1e-5. 28 test cases, 847 assertions.
 - **Built and loads.** The VST3 builds with ARA enabled, exports its factory, and `dlopen`s
   cleanly.
 - **Not yet verified.** End-to-end behaviour in a real host — ARA region editing, session
@@ -188,6 +178,9 @@ Honest about what has and has not been checked:
 `docs/naming.md` is the authority on identifier naming, and is worth reading before
 contributing: this codebase sits across plug-in framework, DSP, machine learning,
 mathematics and music-theory vocabularies, and it says which one wins where they disagree.
+
+Formatting is JUCE house style — Allman braces, four spaces, `foo (bar)` — applied by hand
+rather than by a checked-in `clang-format` configuration.
 
 ## Licence
 

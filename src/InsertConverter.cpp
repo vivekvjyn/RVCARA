@@ -70,9 +70,6 @@ public:
         return jobHasFinished;
     }
 
-    [[nodiscard]] int getFirstSample() const noexcept { return firstSample; }
-    [[nodiscard]] int getLastSample() const noexcept { return lastSample; }
-
 private:
     void finish (ConversionPointer result, juce::String error)
     {
@@ -116,7 +113,6 @@ void InsertConverter::prepare (double sampleRate, int)
     // Allocated here, on the message thread, because the audio thread cannot.
     capturedAudio.assign (static_cast<std::size_t> (numCaptureSamples), 0.0f);
     convertedAudio.assign (static_cast<std::size_t> (numCaptureSamples), 0.0f);
-    capturedGranules.assign (static_cast<std::size_t> (numCaptureSamples / granuleSizeInSamples + 1), 0);
 
     reset();
 }
@@ -133,15 +129,12 @@ void InsertConverter::release()
 
     capturedAudio.clear();
     convertedAudio.clear();
-    capturedGranules.clear();
     numCaptureSamples = 0;
 }
 
 void InsertConverter::reset()
 {
     shouldAbortRender.store (true);
-
-    std::fill (capturedGranules.begin(), capturedGranules.end(), 0);
 
     hasCaptureOrigin.store (false, std::memory_order_release);
     firstCapturedSample.store (0, std::memory_order_relaxed);
@@ -153,7 +146,6 @@ void InsertConverter::reset()
         const juce::ScopedLock lock { settingsLock };
         conversion.reset();
         errorMessage.clear();
-        renderedVoiceName.clear();
     }
 
     state.store (State::idle, std::memory_order_release);
@@ -265,14 +257,6 @@ void InsertConverter::process (juce::AudioBuffer<float>& buffer,
                     sum += buffer.getReadPointer (channelIndex)[sampleIndex];
 
                 capturedAudio[static_cast<std::size_t> (writeStart + sampleIndex)] = sum * scale;
-            }
-
-            for (auto granule = writeStart / granuleSizeInSamples;
-                 granule <= (writeStart + numSamples - 1) / granuleSizeInSamples;
-                 ++granule)
-            {
-                if (granule < static_cast<int> (capturedGranules.size()))
-                    capturedGranules[static_cast<std::size_t> (granule)] = 1;
             }
 
             const auto previousFirst = firstCapturedSample.load (std::memory_order_relaxed);
@@ -454,8 +438,6 @@ void InsertConverter::completeRender (ConversionPointer result, juce::String err
     {
         const juce::ScopedLock lock { settingsLock };
         conversion = result;
-        renderedSettings = result->settings;
-        renderedVoiceName = result->voiceName;
         errorMessage.clear();
     }
 

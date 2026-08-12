@@ -116,25 +116,25 @@ endfunction()
 # Submodules
 # ==================================================================================
 
-foreach(submodule juce ara-sdk hnswlib)
+foreach(submodule JUCE ARA_SDK hnswlib)
     if(NOT EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/libs/${submodule}/README.md"
        AND NOT EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/libs/${submodule}/CMakeLists.txt")
         message(FATAL_ERROR "libs/${submodule} is empty. See the build steps in README.md.")
     endif()
 endforeach()
 
-if(NOT EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/libs/ara-sdk/ARA_Library/PlugIn/ARAPlug.h")
+if(NOT EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/libs/ARA_SDK/ARA_Library/PlugIn/ARAPlug.h")
     message(FATAL_ERROR
         "The ARA SDK's own submodules are not checked out. Run:\n"
-        "    git -C libs/ara-sdk submodule update --init --depth 1 ARA_API ARA_Library")
+        "    git -C libs/ARA_SDK submodule update --init --depth 1 ARA_API ARA_Library")
 endif()
 
-add_subdirectory(libs/juce)
+add_subdirectory(libs/JUCE)
 
 # Defined by JUCE's CMake utilities, so it can only be called after JUCE is added — but it
 # must still precede any target depending on the ARA SDK. JUCE compiles the ARA library's
 # sources itself, so an include path is all it needs from us.
-juce_set_ara_sdk_path("${CMAKE_CURRENT_SOURCE_DIR}/libs/ara-sdk")
+juce_set_ara_sdk_path("${CMAKE_CURRENT_SOURCE_DIR}/libs/ARA_SDK")
 
 # hnswlib is header only, and its own CMakeLists builds examples and tests we have no use
 # for, so it is consumed as an interface target rather than added as a subdirectory.
@@ -321,6 +321,6 @@ endforeach()
 
 if(RVCARA_BUILD_TESTS)
     enable_testing()
-    add_subdirectory(libs/catch2)
+    add_subdirectory(libs/Catch2)
     add_subdirectory(tests)
 endif()

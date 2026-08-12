@@ -38,7 +38,7 @@ jobs:
         shell: bash
         run: |
           git submodule update --init --depth 1
-          git -C libs/ara-sdk submodule update --init --depth 1 ARA_API ARA_Library
+          git -C libs/ARA_SDK submodule update --init --depth 1 ARA_API ARA_Library
 
       - name: Install Linux dependencies
         if: runner.os == 'Linux'
@@ -87,34 +87,3 @@ jobs:
             build/RVCARA_artefacts/*/AU/**
           if-no-files-found: warn
           retention-days: 14
-
-  exporter:
-    name: Exporter
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-
-      - uses: actions/setup-python@v5
-        with:
-          python-version: '3.10'
-
-      # No torch and no RVC checkout here, so the model export itself cannot run. What can
-      # run is everything that does not need them: the container format, the manifest
-      # construction, the filter design, and the reference DSP that generates the fixtures
-      # the C++ tests assert against. If the fixtures regenerate differently, the golden
-      # tests upstream of them are no longer measuring what they claim to.
-      - name: Install dependencies
-        run: python -m pip install numpy scipy librosa
-
-      - name: Regenerate fixtures and confirm they are unchanged
-        working-directory: tools
-        run: |
-          PYTHONPATH=. python -m rvcara_export.reference
-          cd ..
-          if ! git diff --quiet -- tests/fixtures; then
-            echo "::error::Regenerating the fixtures changed them. The committed fixtures and"
-            echo "::error::the reference implementation have diverged; review the diff."
-            git --no-pager diff --stat -- tests/fixtures
-            exit 1
-          fi
-          echo "Fixtures reproduce exactly"

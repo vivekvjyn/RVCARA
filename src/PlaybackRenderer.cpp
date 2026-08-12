@@ -27,13 +27,11 @@ PlaybackRenderer::PlaybackRenderer (ARA::PlugIn::DocumentController* documentCon
 
 void PlaybackRenderer::prepareToPlay (double sampleRate,
                                       int maximumSamplesPerBlock,
-                                      int numChannels,
+                                      int,
                                       juce::AudioProcessor::ProcessingPrecision,
                                       AlwaysNonRealtime alwaysNonRealtime)
 {
     hostSampleRate = sampleRate;
-    numOutputChannels = numChannels;
-    maximumBlockSize = maximumSamplesPerBlock;
     isAlwaysNonRealtime = alwaysNonRealtime == AlwaysNonRealtime::yes;
 
     sourceReaders.clear();
