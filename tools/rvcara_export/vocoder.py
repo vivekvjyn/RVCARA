@@ -17,8 +17,8 @@ import torch
 import torch.nn.functional as functional
 from torch import nn
 
-from .onnx_utils import export_graph
-from .rvc_bridge import VoiceCheckpoint, import_rvc_module
+from .graphs import export_graph
+from .rvc import VoiceCheckpoint, import_rvc_module
 
 logger = logging.getLogger(__name__)
 

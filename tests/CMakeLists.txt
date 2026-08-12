@@ -15,8 +15,8 @@ add_executable(rvcara_tests
 
 target_link_libraries(rvcara_tests
     PRIVATE
-        rvcara::engine
-        rvcara::warnings
+        rvcara_engine
+        rvcara_warnings
         Catch2::Catch2WithMain)
 
 target_compile_definitions(rvcara_tests PRIVATE

@@ -1,49 +1,67 @@
 # RVCARA
 
-Retrieval-based voice conversion as an ARA plug-in. Drop it on a vocal track in an
-ARA-capable DAW, pick a voice, and the region is re-sung in that voice — offline, on the
-CPU, with no Python at run time and nothing sent to a server.
+Retrieval-based voice conversion as an audio plug-in. Drop it on a vocal track, pick a
+voice, and the vocal is re-sung in that voice — offline, on the CPU, with no Python at run
+time and nothing sent to a server.
 
 The model is [RVC](https://github.com/RVC-Project/Retrieval-based-Voice-Conversion-WebUI)
 v2. Voices are trained with the sibling [RTVoice](https://github.com/vivekvjyn/RTVoice)
 project and converted into inference assets by the exporter in `tools/`.
 
-## Why ARA
+## Two ways it runs
 
-RVC is not causal. Its content encoder is a twelve-layer transformer over the whole
+RVC is **not causal**. Its content encoder is a twelve-layer transformer over the whole
 utterance, its pitch estimator is a U-Net that sees the future, and its vocoder is
-conditioned on a pitch track that has been gap-filled end to end. Running it as an ordinary
-insert effect means a sliding window, several hundred milliseconds of latency, and audibly
-worse output at the seams.
+conditioned on a pitch track gap-filled end to end. It cannot convert audio as it streams
+past. Measured on sixteen cores, a 0.25 s window costs *more* than 0.25 s to convert; only
+past about a second of window does the cost drop to roughly half of real time, and by then
+the latency and the crossfade seams have cost more quality than they saved.
 
-[ARA](https://github.com/Celemony/ARA_SDK) removes the problem instead of working around
-it. The host grants the plug-in random access to the entire audio region up front, so the
-model sees the whole performance, converts it once on a background thread, and playback
-becomes a memory read. This is the same arrangement Melodyne and
-[IK Multimedia's ReSing](https://www.ikmultimedia.com/products/resing/) use, and for the
-same reason.
+So conversion is always offline. What differs is how the plug-in gets hold of the audio.
 
-Loaded **without** ARA, the plug-in passes audio through unchanged and says so in its
-interface. That is deliberate: a degraded streaming mode presented as the same product
-would mislead.
+**ARA mode** — the good one. [ARA](https://github.com/Celemony/ARA_SDK) has the host grant
+random access to the whole region up front, so the model sees the entire performance,
+converts once on a background thread, and playback becomes a memory read. Region edits,
+per-region settings and session persistence all work properly. Same arrangement Melodyne and
+[IK Multimedia's ReSing](https://www.ikmultimedia.com/products/resing/) use.
+
+**Insert mode** — for hosts with no ARA. Drop it on the vocal and press play:
+
+1. The plug-in captures the audio against the host timeline as it goes, passing the dry
+   signal through so you hear something.
+2. Shortly after the transport stops — or when you press **Convert** — the captured take is
+   converted at full quality, the whole phrase in view, exactly as the ARA path does it.
+3. On the next pass the converted voice plays back in place, sample aligned, with no added
+   latency and no seams.
+
+The only cost is that the first pass is dry. Changing a control re-converts immediately from
+the existing capture, so you do not have to replay to audition a change.
+
+Neither mode is usable for live monitoring, and no amount of engineering makes this class of
+model suitable for it.
 
 ## Layout
 
 ```
-source/
-  dsp/       Resampling, zero-phase filtering, mel spectrogram, pitch mathematics
-  engine/    Manifest, ONNX sessions, retrieval, pitch estimation, the pipeline
-  ara/       Document controller, audio modification, playback renderer
-  gui/       Pitch curve view
-  plugin/    AudioProcessor, editor, plug-in and ARA factory entry points
-tools/       Python exporter: checkpoint to ONNX assets, plus the reference pipeline
-tests/       Catch2 unit tests and cross-language fixtures
-libs/        Submodules: JUCE, ARA SDK, hnswlib, Catch2
-docs/        Naming conventions and architecture
+src/     All C++, flat, one rvcara namespace
+res/     Runtime resources; exported voices live in res/models/
+libs/    Submodules: JUCE, ARA SDK, hnswlib, Catch2
+tests/   Catch2 unit tests and cross-language fixtures
+tools/   Python exporter — build time only, never ships
+docs/    Naming conventions and architecture
 ```
 
-The engine knows nothing about ARA or about plug-in formats; it takes a buffer and returns
-a buffer, which is why the tests can link it directly.
+Within `src/`, the conversion engine (`ConversionEngine`, `VoiceModel`, `PitchEstimator`,
+`FeatureRetriever`, the DSP) knows nothing about ARA or about plug-in formats: it takes a
+buffer and returns a buffer, which is why the tests link it directly without instantiating a
+plug-in. `DocumentController`, `PlaybackRenderer` and `ConversionModification` are the ARA
+path; `InsertConverter` is the non-ARA one; both drive the same engine through the same
+`VoiceLoader`.
+
+**Why there is Python.** `tools/` converts a trained RVC checkpoint into the ONNX graphs and
+binary matrices the plug-in loads. Tracing those networks needs PyTorch, so there is no C++
+route to it. It runs once per voice, on your machine, and the plug-in has no Python
+dependency whatsoever.
 
 ## Building
 
@@ -66,8 +84,8 @@ and checked against a recorded SHA256. Building it from source takes tens of min
 buys nothing, since only the CPU execution provider is used. Point
 `RVCARA_ONNXRUNTIME_ROOT` at an existing installation to override.
 
-Artefacts land in `build/source/plugin/RVCARA_artefacts/`, with the ONNX Runtime shared
-library copied beside each one.
+Artefacts land in `build/RVCARA_artefacts/`, with the ONNX Runtime shared library copied
+beside each one.
 
 On Linux, JUCE needs the usual development packages — ALSA, FreeType, Fontconfig, X11 and
 GL. See `libs/juce/docs/Linux Dependencies.md`.
@@ -82,7 +100,7 @@ cd tools
 python -m rvcara_export female1 --rvc-root ~/Desktop/RVC --verify --verbose
 ```
 
-That writes `assets/models/female1/` containing:
+That writes `res/models/female1/` containing:
 
 | File | What it is |
 | --- | --- |
@@ -99,7 +117,7 @@ the reference model that reports pitch agreement within a few cents and correlat
 0.999.
 
 The plug-in searches, in increasing precedence: the shared application data directory, the
-user's application data directory, `assets/models` near the binary, and any path in
+user's application data directory, `res/models` near the binary, and any path in
 `RVCARA_MODEL_PATH`.
 
 ### Why nothing is compiled in
@@ -161,9 +179,9 @@ Honest about what has and has not been checked:
   because tracing had silently frozen the vocoder at one frame count.
 - **Built and loads.** The VST3 builds with ARA enabled, exports its factory, and `dlopen`s
   cleanly.
-- **Not yet verified.** End-to-end behaviour inside a real ARA host — region editing,
-  persistence across a session reload, playback alignment against the timeline. That needs
-  a DAW, or JUCE's AudioPluginHost built with `JUCE_PLUGINHOST_ARA=1`.
+- **Not yet verified.** End-to-end behaviour in a real host — ARA region editing, session
+  persistence, and insert-mode capture alignment against the timeline. That needs a DAW, or
+  JUCE's AudioPluginHost built with `JUCE_PLUGINHOST_ARA=1`.
 
 ## Conventions
 

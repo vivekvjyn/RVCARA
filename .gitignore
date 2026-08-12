@@ -16,11 +16,14 @@ compile_commands.json
 # Third-party binaries fetched at configure time rather than vendored
 third_party/onnxruntime/
 
-# Exported model assets. These are derived artefacts, hundreds of megabytes
-# each; regenerate them with `python -m rvcara_export`.
-assets/models/
+# Exported voices. Derived artefacts, around a gigabyte each; regenerate with
+# `cd tools && python -m rvcara_export <voice>`. The directory itself is kept, with its
+# README, so the search path exists in a fresh clone.
+res/models/*
+!res/models/README.md
 *.onnx
 *.ort
+*.hnsw
 retrieval.bin
 
 # Python

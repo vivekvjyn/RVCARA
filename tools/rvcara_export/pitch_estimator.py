@@ -18,9 +18,9 @@ import numpy as np
 import torch
 from torch import nn
 
-from .binary_matrix import write_matrix
-from .onnx_utils import export_graph
-from .rvc_bridge import RvcTree, import_rvc_module
+from .assets import write_matrix
+from .graphs import export_graph
+from .rvc import RvcTree, import_rvc_module
 
 logger = logging.getLogger(__name__)
 

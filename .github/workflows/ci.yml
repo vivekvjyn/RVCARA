@@ -83,8 +83,8 @@ jobs:
         with:
           name: RVCARA-${{ matrix.name }}
           path: |
-            build/source/plugin/RVCARA_artefacts/*/VST3/**
-            build/source/plugin/RVCARA_artefacts/*/AU/**
+            build/RVCARA_artefacts/*/VST3/**
+            build/RVCARA_artefacts/*/AU/**
           if-no-files-found: warn
           retention-days: 14
 
@@ -109,7 +109,7 @@ jobs:
       - name: Regenerate fixtures and confirm they are unchanged
         working-directory: tools
         run: |
-          PYTHONPATH=. python -m rvcara_export.fixtures
+          PYTHONPATH=. python -m rvcara_export.reference
           cd ..
           if ! git diff --quiet -- tests/fixtures; then
             echo "::error::Regenerating the fixtures changed them. The committed fixtures and"

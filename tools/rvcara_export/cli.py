@@ -7,7 +7,7 @@ import logging
 import sys
 from pathlib import Path
 
-from . import content_encoder, graph_checks, pitch_estimator, retrieval, vocoder
+from . import assets, content_encoder, graphs, pitch_estimator, vocoder
 from .manifest import (
     ModelManifest,
     build_chunking_description,
@@ -16,8 +16,8 @@ from .manifest import (
     build_provenance_description,
     describe_git_commit,
 )
-from .onnx_utils import describe_graph, freeze_random_seeds, report_sizes
-from .rvc_bridge import RvcSourceNotFound, load_voice_checkpoint, locate_rvc_tree
+from .graphs import describe_graph, freeze_random_seeds, report_sizes
+from .rvc import RvcSourceNotFound, load_voice_checkpoint, locate_rvc_tree
 
 logger = logging.getLogger("rvcara_export")
 
@@ -140,10 +140,10 @@ def export_model(arguments: argparse.Namespace, repository_root: Path) -> Path:
         freeze_random_seeds(path, RANDOM_SEED)
 
     logger.info("checking that every graph accepts variable-length input")
-    graph_checks.report(
-        graph_checks.check_content_encoder(contentPath)
-        + graph_checks.check_pitch_estimator(pitchPath, numMelBins=pitch_estimator.NUM_MEL_BINS)
-        + graph_checks.check_vocoder(
+    graphs.report(
+        graphs.check_content_encoder(contentPath)
+        + graphs.check_pitch_estimator(pitchPath, numMelBins=pitch_estimator.NUM_MEL_BINS)
+        + graphs.check_vocoder(
             vocoderPath,
             featureDim=checkpoint.feature_dim,
             latentDim=int(checkpoint.config[2]),
@@ -154,10 +154,10 @@ def export_model(arguments: argparse.Namespace, repository_root: Path) -> Path:
 
     retrievalDescription: dict[str, object] = {}
     if indexPath is not None and not arguments.skip_retrieval:
-        _, codebook = retrieval.export_codebook(
+        _, codebook = assets.export_codebook(
             indexPath, destination, expected_feature_dim=checkpoint.feature_dim
         )
-        retrievalDescription = retrieval.describe_codebook(codebook)
+        retrievalDescription = assets.describe_codebook(codebook)
     else:
         logger.warning(
             "no retrieval index exported; the voice will sound closer to the source performer"
@@ -202,7 +202,7 @@ def export_model(arguments: argparse.Namespace, repository_root: Path) -> Path:
     print(
         report_sizes(
             [contentPath, pitchPath, vocoderPath, filterBankPath, manifestPath]
-            + ([destination / retrieval.CODEBOOK_FILENAME] if retrievalDescription else [])
+            + ([destination / assets.CODEBOOK_FILENAME] if retrievalDescription else [])
         )
     )
 
@@ -223,12 +223,12 @@ def main(argv: list[str] | None = None) -> int:
 
     try:
         destination = export_model(arguments, repositoryRoot)
-    except (RvcSourceNotFound, FileNotFoundError, ValueError, graph_checks.GraphCheckFailed) as error:
+    except (RvcSourceNotFound, FileNotFoundError, ValueError, graphs.GraphCheckFailed) as error:
         print(f"error: {error}", file=sys.stderr)
         return 1
 
     if arguments.verify is not None:
-        from .verify import verify_export
+        from .reference import verify_export
 
         return verify_export(
             destination,

@@ -7,7 +7,7 @@ be turned into one of three things:
 * an ONNX graph, for the three neural networks (:mod:`content_encoder`,
   :mod:`pitch_estimator`, :mod:`vocoder`);
 * a binary data file, for the two constant matrices — the retrieval codebook
-  (:mod:`retrieval`) and the mel filter bank (:mod:`mel`);
+  (:mod:`assets`) and the mel filter bank (:mod:`pitch_estimator`);
 * a documented constant in ``manifest.json`` (:mod:`manifest`), for everything
   the C++ engine must reproduce arithmetically.
 

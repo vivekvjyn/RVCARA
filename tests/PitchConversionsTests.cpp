@@ -1,9 +1,9 @@
-#include <dsp/PitchConversions.h>
+#include "PitchConversions.h"
 
 #include <catch2/catch_approx.hpp>
 #include <catch2/catch_test_macros.hpp>
 
-using namespace rvcara::dsp;
+using namespace rvcara;
 using Catch::Approx;
 
 TEST_CASE ("hzToMel matches the reference formula", "[pitch]")

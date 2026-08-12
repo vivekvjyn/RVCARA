@@ -4,7 +4,7 @@
 
 Converting a region runs seven stages. Each is a transcription of
 `infer/vc/pipeline.py` in the RVC project, mediated by
-`tools/rvcara_export/pipeline.py` — the NumPy implementation that was checked against
+`tools/rvcara_export/reference.py` — the NumPy implementation that was checked against
 reference renders before any C++ was written. When the C++ and the reference disagree, that
 Python file is the arbiter.
 
@@ -86,6 +86,36 @@ concurrently at these options, and each conversion already saturates the cores i
 Renders are cancellable. `ConversionEngine::convert` polls an abort flag between stages and
 between chunks, so dragging a slider abandons the in-flight render rather than queueing
 behind it.
+
+## The two front ends
+
+The pipeline above is the same either way. What differs is who supplies the audio.
+
+**ARA.** `DocumentController` owns the voice and the render queue; `ConversionModification`
+holds the settings and the cached conversion for one audio source, and is what the session
+archive persists; `PlaybackRenderer` copies out of that cache. The host provides the region
+through `ARAAudioSourceReader`.
+
+**Insert.** `InsertConverter` has to overhear the audio instead. On every block it copies the
+input into a buffer indexed by song position, then converts the captured span once the
+transport has been quiet for half a second. Playback substitutes the conversion only over the
+span it actually covers, so a jump outside the capture leaves the dry signal rather than a
+hole.
+
+Insert mode is strictly worse and exists only because not every host offers ARA:
+
+| | ARA | Insert |
+| --- | --- | --- |
+| How audio arrives | Host hands over the region | Overheard as it plays |
+| First pass | Already converted | Dry |
+| Per-region settings | Yes | One capture per instance |
+| Survives a session reload | Yes, re-renders from the archive | No, recapture |
+| Memory | Host owns the audio | Pre-allocated capture buffer |
+| Follows region edits | Yes | Recapture |
+
+Both paths share `VoiceLoader`, which owns the library, the loaded voice, the model lock and
+the single worker thread. That sharing is the point: two copies of asynchronous voice loading
+would drift.
 
 ## What ARA gives us, concretely
 

@@ -1,10 +1,10 @@
-#include <engine/BinaryMatrix.h>
+#include "BinaryMatrix.h"
 
 #include <catch2/catch_test_macros.hpp>
 
 #include <vector>
 
-using namespace rvcara::engine;
+using namespace rvcara;
 
 namespace
 {

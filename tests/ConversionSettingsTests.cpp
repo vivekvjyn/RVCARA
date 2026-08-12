@@ -1,10 +1,10 @@
-#include <engine/ConversionSettings.h>
+#include "ConversionSettings.h"
 
 #include <catch2/catch_test_macros.hpp>
 
 #include <set>
 
-using namespace rvcara::engine;
+using namespace rvcara;
 
 TEST_CASE ("default settings match the reference configuration", "[settings]")
 {

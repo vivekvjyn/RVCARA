@@ -1,5 +1,5 @@
-#include <dsp/MelSpectrogram.h>
-#include <engine/BinaryMatrix.h>
+#include "MelSpectrogram.h"
+#include "BinaryMatrix.h"
 
 #include <catch2/catch_approx.hpp>
 #include <catch2/catch_test_macros.hpp>
@@ -17,11 +17,11 @@ namespace
         return juce::File { RVCARA_TEST_FIXTURE_DIR };
     }
 
-    dsp::MelSpectrogram::Configuration getReferenceConfiguration()
+    MelSpectrogram::Configuration getReferenceConfiguration()
     {
         // The values the reference RMVPE front end uses, mirrored from
         // tools/rvcara_export/pitch_estimator.py.
-        dsp::MelSpectrogram::Configuration configuration;
+        MelSpectrogram::Configuration configuration;
         configuration.fftSize = 1024;
         configuration.windowSize = 1024;
         configuration.hopSizeInSamples = 160;
@@ -34,7 +34,7 @@ namespace
 
     std::vector<float> loadFilterBank()
     {
-        const auto matrix = engine::BinaryMatrix::load (getFixtureDirectory().getChildFile ("mel_filter_bank.bin"));
+        const auto matrix = BinaryMatrix::load (getFixtureDirectory().getChildFile ("mel_filter_bank.bin"));
         REQUIRE (matrix.isValid());
 
         return { matrix.getData(),
@@ -44,7 +44,7 @@ namespace
 
 TEST_CASE ("the frame count follows the centred-framing rule", "[mel]")
 {
-    const dsp::MelSpectrogram spectrogram { getReferenceConfiguration(), loadFilterBank() };
+    const MelSpectrogram spectrogram { getReferenceConfiguration(), loadFilterBank() };
 
     // Centred framing gives one frame per hop plus one, independent of the transform
     // size. Getting this wrong by one frame misaligns the pitch track against the
@@ -57,7 +57,7 @@ TEST_CASE ("the frame count follows the centred-framing rule", "[mel]")
 
 TEST_CASE ("a signal shorter than the reflection is refused rather than guessed at", "[mel]")
 {
-    const dsp::MelSpectrogram spectrogram { getReferenceConfiguration(), loadFilterBank() };
+    const MelSpectrogram spectrogram { getReferenceConfiguration(), loadFilterBank() };
 
     std::vector<float> tiny (100, 0.0f);
     std::vector<float> destination;
@@ -74,13 +74,13 @@ TEST_CASE ("the spectrogram matches the reference implementation", "[mel]")
     // a plausible spectrogram of the wrong thing.
     const auto fixtures = getFixtureDirectory();
 
-    const auto signal = engine::BinaryMatrix::load (fixtures.getChildFile ("test_signal.bin"));
-    const auto expected = engine::BinaryMatrix::load (fixtures.getChildFile ("expected_log_mel.bin"));
+    const auto signal = BinaryMatrix::load (fixtures.getChildFile ("test_signal.bin"));
+    const auto expected = BinaryMatrix::load (fixtures.getChildFile ("expected_log_mel.bin"));
 
     REQUIRE (signal.isValid());
     REQUIRE (expected.isValid());
 
-    const dsp::MelSpectrogram spectrogram { getReferenceConfiguration(), loadFilterBank() };
+    const MelSpectrogram spectrogram { getReferenceConfiguration(), loadFilterBank() };
 
     std::vector<float> computed;
     const auto numFrames = spectrogram.process (signal.getData(), signal.getNumColumns(), computed);
@@ -103,7 +103,7 @@ TEST_CASE ("a pure tone lands in the expected mel bin", "[mel]")
     // A sanity check that survives a filter bank regenerated with different parameters,
     // which the golden test above would simply fail without saying why.
     const auto configuration = getReferenceConfiguration();
-    const dsp::MelSpectrogram spectrogram { configuration, loadFilterBank() };
+    const MelSpectrogram spectrogram { configuration, loadFilterBank() };
 
     constexpr auto sampleRate = 16000.0;
     constexpr auto toneHz = 1000.0;

@@ -14,8 +14,8 @@ from pathlib import Path
 import torch
 from torch import nn
 
-from .onnx_utils import export_graph
-from .rvc_bridge import RvcTree
+from .graphs import export_graph
+from .rvc import RvcTree
 
 logger = logging.getLogger(__name__)
 

@@ -30,7 +30,7 @@ When two conventions conflict, apply the first rule that matches:
 
 | Kind | Convention | Example |
 | --- | --- | --- |
-| Namespace | lowercase, one word | `rvcara`, `rvcara::dsp` |
+| Namespace | lowercase, one word | `rvcara` |
 | Class, struct, enum class | `PascalCase` | `ConversionEngine`, `MelSpectrogram` |
 | Type alias | `PascalCase` | `using SampleBuffer = juce::AudioBuffer<float>;` |
 | Template parameter | `PascalCase`, descriptive | `SampleType`, not `T` |
@@ -40,7 +40,7 @@ When two conventions conflict, apply the first rule that matches:
 | Enumerator | `camelCase` | `enum class F0Method { rmvpe, fcpe, pm };` |
 | Macro | `SCREAMING_SNAKE_CASE`, prefixed | `RVCARA_ASSERT` |
 | File | `PascalCase`, one primary type per file | `PitchEstimator.h` |
-| Directory | lowercase | `source/engine/` |
+| Directory | lowercase | `src/`, `res/`, `libs/` |
 
 Rules that follow from JUCE style and are enforced here:
 
@@ -222,15 +222,18 @@ PEP 8, matching the sibling `RVC` project so the two read as one codebase:
 `SCREAMING_SNAKE_CASE` for module constants, type hints on public functions,
 and `"""Imperative one-line docstrings."""`
 
-Names mirror the C++ side where they name the same thing — `export_vocoder`
-produces the artefact the C++ `Vocoder` loads — so the pipeline is greppable
-end to end.
+Names mirror the C++ side where they name the same thing — `export_vocoder` produces the
+artefact the C++ vocoder session loads — so the pipeline is greppable end to end.
 
 ## 11. Files, directories and assets
 
-- Directories are lowercase and name a layer, not a type: `source/engine/`,
-  `source/dsp/`, `source/ara/`, `source/plugin/`, `source/gui/`.
-- `libs/` holds submodules only, mirroring the `RVC` repository's layout.
+- All C++ lives flat in `src/`, in one `rvcara` namespace. An earlier layout split it into
+  `dsp/`, `engine/`, `ara/`, `gui/` and `plugin/` with a namespace each; for around forty
+  files that was more ceremony than navigation aid, and every cross-layer reference paid for
+  it twice — once in the include path and once in the qualification.
+- `res/` holds runtime resources, chiefly the exported voices under `res/models/`.
+- `libs/` holds submodules only.
+- `tools/` holds the Python exporter, which is build-time only and never ships.
 - Exported model assets are lowercase with a `snake_case` role:
   `content_encoder.onnx`, `pitch_estimator.onnx`, `vocoder.onnx`,
   `retrieval.bin`, `manifest.json`. They are data read by both languages, so
