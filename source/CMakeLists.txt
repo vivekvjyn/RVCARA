@@ -31,10 +31,12 @@ target_link_libraries(rvcara_engine
         rvcara::hnswlib
         rvcara::warnings)
 
+# JUCE_STANDALONE_APPLICATION is deliberately not set here. The plugin client defines it
+# per format target, and defining it in the engine would redefine it for the standalone
+# build.
 target_compile_definitions(rvcara_engine
     PUBLIC
         JUCE_GLOBAL_MODULE_SETTINGS_INCLUDED=1
-        JUCE_STANDALONE_APPLICATION=0
         # The engine does no file dialogs, networking or web views; excluding them keeps
         # the static library and every binary that links it smaller.
         JUCE_WEB_BROWSER=0
@@ -58,4 +60,4 @@ if(NOT MSVC)
         -Wno-unused-parameter -Wno-sign-compare)
 endif()
 
-# add_subdirectory(plugin)  # re-enabled once the plugin sources land
+add_subdirectory(plugin)

@@ -1,0 +1,120 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+# A push that supersedes an in-flight run cancels it. Builds here are long — JUCE, the ARA
+# library and a 135 MB link step — so a queue of stale runs is expensive.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: ${{ matrix.name }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: Linux
+            os: ubuntu-latest
+          - name: macOS
+            os: macos-latest
+          - name: Windows
+            os: windows-latest
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # Not `recursive`: the ARA SDK's own submodules include an examples tree with
+          # further nested dependencies that nothing here builds.
+          submodules: false
+
+      - name: Initialise submodules
+        shell: bash
+        run: |
+          git submodule update --init --depth 1
+          git -C libs/ara-sdk submodule update --init --depth 1 ARA_API ARA_Library
+
+      - name: Install Linux dependencies
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            ninja-build libasound2-dev libfreetype-dev libfontconfig1-dev \
+            libx11-dev libxcomposite-dev libxcursor-dev libxext-dev \
+            libxinerama-dev libxrandr-dev libxrender-dev libgl1-mesa-dev
+
+      - name: Install Ninja
+        if: runner.os != 'Linux'
+        uses: seanmiddleditch/gha-setup-ninja@v5
+
+      # The ONNX Runtime archive is around 60 MB and is fetched at configure time. Caching
+      # it keeps the download off every run.
+      - name: Cache ONNX Runtime download
+        uses: actions/cache@v4
+        with:
+          path: build/_deps/onnxruntime-subbuild
+          key: onnxruntime-1.23.2-${{ runner.os }}
+
+      - name: Configure
+        run: cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=RelWithDebInfo
+
+      - name: Build
+        run: cmake --build build --parallel
+
+      - name: Test
+        run: ctest --test-dir build --output-on-failure
+
+      - name: Confirm ARA is enabled
+        shell: bash
+        run: |
+          # A plug-in that builds but silently lost IS_ARA_EFFECT would be a quiet
+          # regression: it would load in every host and never offer ARA. Assert the
+          # define reached the compiler.
+          grep -q "JucePlugin_Enable_ARA=1" build/compile_commands.json
+          echo "ARA support is compiled in"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: RVCARA-${{ matrix.name }}
+          path: |
+            build/source/plugin/RVCARA_artefacts/*/VST3/**
+            build/source/plugin/RVCARA_artefacts/*/AU/**
+          if-no-files-found: warn
+          retention-days: 14
+
+  exporter:
+    name: Exporter
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.10'
+
+      # No torch and no RVC checkout here, so the model export itself cannot run. What can
+      # run is everything that does not need them: the container format, the manifest
+      # construction, the filter design, and the reference DSP that generates the fixtures
+      # the C++ tests assert against. If the fixtures regenerate differently, the golden
+      # tests upstream of them are no longer measuring what they claim to.
+      - name: Install dependencies
+        run: python -m pip install numpy scipy librosa
+
+      - name: Regenerate fixtures and confirm they are unchanged
+        working-directory: tools
+        run: |
+          PYTHONPATH=. python -m rvcara_export.fixtures
+          cd ..
+          if ! git diff --quiet -- tests/fixtures; then
+            echo "::error::Regenerating the fixtures changed them. The committed fixtures and"
+            echo "::error::the reference implementation have diverged; review the diff."
+            git --no-pager diff --stat -- tests/fixtures
+            exit 1
+          fi
+          echo "Fixtures reproduce exactly"
