@@ -160,6 +160,13 @@ DocumentController::DocumentController (const ARA::PlugIn::PlugInEntry* entry,
     : juce::ARADocumentControllerSpecialisation (entry, instance)
 {
     loader.addListener (this);
+
+    // Start loading a voice straight away rather than waiting to be told which one. A document
+    // controller is only created when a host has actually opened a session with the plug-in in
+    // it, so this is not the plug-in scan; and every region added afterwards is then converted
+    // without the user having chosen anything. A restored session overrides the choice below
+    // with the voice its archive names.
+    loader.requestDefaultVoice ([this] { requestRenderForAllStaleModifications(); });
 }
 
 DocumentController::~DocumentController()
@@ -456,6 +463,17 @@ bool DocumentController::doRestoreObjectsFromStream (juce::ARAInputStream& input
 
         if (input.failed())
             return false;
+    }
+
+    // The archive names the voice each modification was converted with, which need not be the
+    // one this instance loaded by default. Load that instead; it re-renders on completion.
+    for (const auto* modification : getModifications())
+    {
+        if (const auto name = modification->getVoiceName(); name.isNotEmpty())
+        {
+            requestVoice (name);
+            break;
+        }
     }
 
     // Rendered audio is not archived, so a restored session converts on open.

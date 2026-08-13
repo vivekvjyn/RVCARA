@@ -77,6 +77,18 @@ public:
     */
     void request (const juce::String& name, std::function<void()> onCompleted = {});
 
+    /** Requests whichever voice a fresh instance should start with.
+
+        There is nothing to choose when one voice is installed, and choosing is not the
+        interesting part of the plug-in when several are, so an instance loads the first voice
+        it finds rather than waiting to be told. Scanning is cheap — one small JSON per voice —
+        and the load itself runs on the worker thread as any other does.
+
+        @param onCompleted  As for request(). Not called when there is nothing to load.
+        @returns            False when no voice is installed, so a caller can say so.
+    */
+    bool requestDefaultVoice (std::function<void()> onCompleted = {});
+
     /** @returns The shared worker pool, for callers that queue their own render jobs. */
     [[nodiscard]] juce::ThreadPool& getWorkerPool() noexcept { return workerPool; }
 

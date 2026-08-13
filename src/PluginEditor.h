@@ -30,7 +30,10 @@ class PluginEditor final : public juce::AudioProcessorEditor,
                            private DocumentController::Listener
 {
 public:
-    explicit PluginEditor (PluginProcessor& processor);
+    /** @param processorToUse  Named to avoid shadowing AudioProcessorEditor::processor,
+                               which is the same object typed as the base class.
+    */
+    explicit PluginEditor (PluginProcessor& processorToUse);
     ~PluginEditor() override;
 
     void paint (juce::Graphics& graphics) override;

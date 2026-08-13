@@ -164,7 +164,7 @@ Everything degrades toward audible output rather than silence:
 
 | Situation | What happens |
 | --- | --- |
-| No voice chosen | Dry passthrough; the editor asks for a voice |
+| No voice installed | Dry passthrough; the editor names the directory to put one in |
 | Voice still loading | Dry passthrough; progress shown |
 | Render in flight | Previous render plays if there is one, otherwise dry |
 | Settings changed | Stale render keeps playing, marked out of date |
@@ -172,4 +172,5 @@ Everything degrades toward audible output rather than silence:
 | Host sample rate ≠ source rate | Dry passthrough, rather than a pitch-shifted conversion |
 | Manifest from a newer schema | Refused at load with a message, rather than rendered wrongly |
 | Truncated codebook | Refused at load; the header's length is checked against the file |
-| Not bound to ARA | Passthrough, and the editor explains why |
+| Not bound to ARA | Capture and render as an insert; the first pass is dry |
+| No transport position from the host | Dry passthrough, since nothing can be aligned |

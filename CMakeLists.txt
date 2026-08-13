@@ -131,6 +131,31 @@ endif()
 
 add_subdirectory(libs/JUCE)
 
+# JUCE's headers are not ours to fix, and the strict tier further down finds several hundred
+# old-style casts and float promotions inside them — noise that buries anything real in our own
+# code. Promoting the module include directories to system includes silences warnings that
+# originate in those headers while leaving our sources fully checked. Done by rewriting the
+# targets' properties because JUCE's own CMake exports them as ordinary include directories.
+function(rvcara_treat_includes_as_system directory)
+    get_property(targetsInDirectory DIRECTORY "${directory}" PROPERTY BUILDSYSTEM_TARGETS)
+    get_property(subdirectories DIRECTORY "${directory}" PROPERTY SUBDIRECTORIES)
+
+    foreach(target ${targetsInDirectory})
+        get_target_property(includeDirectories ${target} INTERFACE_INCLUDE_DIRECTORIES)
+
+        if(includeDirectories)
+            set_target_properties(${target} PROPERTIES
+                INTERFACE_SYSTEM_INCLUDE_DIRECTORIES "${includeDirectories}")
+        endif()
+    endforeach()
+
+    foreach(subdirectory ${subdirectories})
+        rvcara_treat_includes_as_system("${subdirectory}")
+    endforeach()
+endfunction()
+
+rvcara_treat_includes_as_system("${CMAKE_CURRENT_SOURCE_DIR}/libs/JUCE")
+
 # Defined by JUCE's CMake utilities, so it can only be called after JUCE is added — but it
 # must still precede any target depending on the ARA SDK. JUCE compiles the ARA library's
 # sources itself, so an include path is all it needs from us.
@@ -220,6 +245,12 @@ target_compile_definitions(rvcara_engine PUBLIC
     JUCE_WEB_BROWSER=0
     JUCE_USE_CURL=0
     JUCE_MODAL_LOOPS_PERMITTED=0)
+
+# Where this working copy keeps its exported voices, so a build finds them without an install
+# step. It has to be an absolute path decided here: the plug-in binary ends up in the host's
+# plug-in folder, from which the repository is not reachable by any relative path.
+target_compile_definitions(rvcara_engine PRIVATE
+    RVCARA_DEVELOPMENT_MODEL_PATH="${CMAKE_CURRENT_SOURCE_DIR}/res/models")
 
 # hnswlib's headers trip -Wall on unused parameters and sign comparisons in ways that are
 # not ours to fix, and they are included by one translation unit.

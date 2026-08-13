@@ -22,6 +22,15 @@ namespace
     const juce::Colour dimTextColour { 0xff7d8590 };
     const juce::Colour accentColour { 0xff5fc9a0 };
 
+    /** What to say when the machine has no voice on it at all. Names the directory rather
+        than describing it, because that is what the user has to go and put a file in.
+    */
+    juce::String describeMissingVoice()
+    {
+        return "No voice installed.\nPut an exported voice in\n"
+             + VoiceModelLibrary::getUserModelDirectory().getFullPathName();
+    }
+
     /** Describes what a modification is doing, for the status line. */
     juce::String describeState (const ConversionModification& modification)
     {
@@ -42,10 +51,10 @@ namespace
     }
 } // namespace
 
-PluginEditor::PluginEditor (PluginProcessor& processor)
-    : juce::AudioProcessorEditor (&processor),
-      juce::AudioProcessorEditorARAExtension (&processor),
-      processorReference (processor)
+PluginEditor::PluginEditor (PluginProcessor& processorToUse)
+    : juce::AudioProcessorEditor (&processorToUse),
+      juce::AudioProcessorEditorARAExtension (&processorToUse),
+      processorReference (processorToUse)
 {
     titleLabel.setText ("RVCARA", juce::dontSendNotification);
     titleLabel.setFont (juce::FontOptions { 20.0f, juce::Font::bold });
@@ -260,9 +269,7 @@ void PluginEditor::refreshFromModel()
     if (documentController->getVoiceModel() == nullptr)
     {
         statusLabel.setText ("No voice", juce::dontSendNotification);
-        pitchCurveView.setRenderState (ConversionModification::State::idle, 0.0f,
-                                       "Choose a voice to convert this region.\n"
-                                       "Export one with tools/rvcara_export.");
+        pitchCurveView.setRenderState (ConversionModification::State::idle, 0.0f, describeMissingVoice());
         return;
     }
 
@@ -309,10 +316,7 @@ void PluginEditor::refreshFromInsertConverter()
     if (loader.getVoice() == nullptr)
     {
         statusLabel.setText ("No voice", juce::dontSendNotification);
-        pitchCurveView.setRenderState (ConversionModification::State::idle, 0.0f,
-                                       "Choose a voice, then play the track once.\n"
-                                       "RVCARA captures the vocal, converts it, and plays the "
-                                       "converted voice back in place on the next pass.");
+        pitchCurveView.setRenderState (ConversionModification::State::idle, 0.0f, describeMissingVoice());
         return;
     }
 

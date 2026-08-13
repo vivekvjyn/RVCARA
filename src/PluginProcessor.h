@@ -13,20 +13,24 @@ namespace rvcara
 
 /** The plugin.
 
-    Thin by design. RVCARA does no processing of its own: when bound to ARA the playback
-    renderer serves audio out of a cache, and when not bound there is nothing meaningful
-    to do, because the model is non-causal and needs the whole performance before it can
-    produce a single sample. So this class exists to hold parameters, to bridge them to
-    the ARA model, and to own the editor.
+    Thin by design. RVCARA does no processing of its own on the audio thread, because the
+    model is non-causal and needs the whole performance before it can produce a single
+    sample. Both paths therefore serve audio out of a cache, and this class exists to route
+    to whichever is in use, to hold the parameters, and to own the editor.
 
-    **Not bound to ARA, the plugin passes audio through unchanged.** That is the honest
-    behaviour rather than a limitation to work around. A streaming implementation would
-    need a sliding window with hundreds of milliseconds of latency and would sound
-    materially worse; presenting that as the same product would be misleading. The editor
-    says so plainly when the host has loaded the plugin without ARA.
+    - **Bound to ARA**, the document controller reads each region through the host and the
+      playback renderer serves the conversion.
+    - **Loaded as an ordinary insert**, InsertConverter captures what passes through, converts
+      it once the transport stops, and plays the conversion back at the same song positions on
+      the next pass. See its header for why streaming is not an option.
 
-    Parameters exist so the host can automate and display the controls, but the ARA model
-    is the authority: the values are pushed into the audio modifications of whichever
+    Either way the voice loads by itself: prepareToPlay asks for the first installed voice, so
+    the only thing the user has to do is play the track. Loading is deliberately not done in
+    the constructor — hosts instantiate plug-ins while scanning, and a scan should not read a
+    gigabyte of graph off the disk.
+
+    Parameters exist so the host can automate and display the controls, but in ARA mode the
+    model is the authority: the values are pushed into the audio modifications of whichever
     regions this instance renders, and the editor reads state back from there.
 */
 class PluginProcessor final : public juce::AudioProcessor,
@@ -115,6 +119,9 @@ private:
     static juce::AudioProcessorValueTreeState::ParameterLayout createParameterLayout();
 
     void parameterChanged (const juce::String& parameterId, float newValue) override;
+
+    /** Re-converts the insert-mode capture, if there is one. */
+    void convertCapturedAudio();
 
     juce::AudioProcessorValueTreeState parameters;
 

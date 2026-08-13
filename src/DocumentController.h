@@ -36,8 +36,10 @@ namespace rvcara
     - **Persist.** Settings and voice choice go into the session archive; rendered audio
       does not.
 */
+// juce::ARAAudioSource::Listener is deliberately not inherited here: the specialisation
+// already derives from it, and naming it again would make that base ambiguous while adding
+// nothing — didEnableAudioSourceSamplesAccess below overrides it either way.
 class DocumentController final : public juce::ARADocumentControllerSpecialisation,
-                                private juce::ARAAudioSource::Listener,
                                 private VoiceLoader::Listener
 {
 public:

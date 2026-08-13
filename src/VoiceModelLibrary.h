@@ -19,8 +19,8 @@ namespace rvcara
 
     1. the shared application-data directory, where an installer would put voices;
     2. the per-user application-data directory, where a user's own exports go;
-    3. `assets/models` relative to the running binary, so a development build finds
-       what the exporter just wrote without an install step;
+    3. the working copy's `res/models`, compiled in as `RVCARA_DEVELOPMENT_MODEL_PATH`, so
+       a development build finds an exported voice without an install step;
     4. any directory listed in the `RVCARA_MODEL_PATH` environment variable, which is
        how the tests point the library at a fixture.
 

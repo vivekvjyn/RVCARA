@@ -42,6 +42,20 @@ void VoiceLoader::notifyListeners()
     juce::MessageManager::callAsync ([this] { listeners.call (&Listener::voiceStateChanged); });
 }
 
+bool VoiceLoader::requestDefaultVoice (std::function<void()> onCompleted)
+{
+    if (library.getEntries().empty())
+        library.rescan();
+
+    const auto& entries = library.getEntries();
+
+    if (entries.empty())
+        return false;
+
+    request (entries.front().name, std::move (onCompleted));
+    return true;
+}
+
 void VoiceLoader::request (const juce::String& name, std::function<void()> onCompleted)
 {
     {

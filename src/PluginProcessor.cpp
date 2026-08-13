@@ -223,9 +223,7 @@ void PluginProcessor::parameterChanged (const juce::String&, float)
     // Insert mode. The capture is already in hand, so a settings change can re-render
     // immediately rather than waiting for another pass of the transport.
     insertConverter.setSettings (settings);
-
-    if (insertConverter.getCapturedSeconds() > 0.0)
-        insertConverter.requestConversion();
+    convertCapturedAudio();
 }
 
 // ==================================================================================
@@ -240,6 +238,18 @@ void PluginProcessor::prepareToPlay (double sampleRate, int maximumExpectedSampl
 
     insertConverter.setSettings (getSettingsFromParameters());
     insertConverter.prepare (sampleRate, maximumExpectedSamplesPerBlock);
+
+    // Load the voice as soon as the host means to use the plug-in, so that the first pass of
+    // the transport is captured against a voice already in memory and converts the moment the
+    // transport stops. Deliberately not done in the constructor: hosts instantiate plug-ins
+    // while scanning, and a scan should not read a gigabyte of graph off the disk.
+    insertVoiceLoader.requestDefaultVoice ([this] { convertCapturedAudio(); });
+}
+
+void PluginProcessor::convertCapturedAudio()
+{
+    if (insertConverter.getCapturedSeconds() > 0.0)
+        insertConverter.requestConversion();
 }
 
 void PluginProcessor::releaseResources()
@@ -287,8 +297,8 @@ void PluginProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::Midi
 
     juce::AudioPlayHead::PositionInfo positionInfo;
 
-    if (auto* playHead = getPlayHead())
-        if (const auto hostPosition = playHead->getPosition())
+    if (auto* hostPlayHead = getPlayHead())
+        if (const auto hostPosition = hostPlayHead->getPosition())
             positionInfo = *hostPosition;
 
     insertConverter.process (buffer, positionInfo);

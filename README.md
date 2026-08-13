@@ -109,8 +109,13 @@ recoverable from history with `git checkout b6ea4bd -- tools` if you need it bef
 upstream.
 
 The plug-in searches, in increasing precedence: the shared application data directory, the
-user's application data directory, `res/models` near the binary, and any path in
-`RVCARA_MODEL_PATH`.
+user's application data directory, this working copy's `res/models` — compiled in at
+configure time, since a plug-in is loaded from the host's plug-in folder and cannot reach the
+repository by any relative path — and any path in `RVCARA_MODEL_PATH`.
+
+**Nothing has to be chosen.** An instance loads the first voice it finds as soon as the host
+means to use it, and converts with it; the voice menu exists only for switching between
+several. In insert mode that means the only thing the user does is play the track.
 
 ### Why nothing is compiled in
 
@@ -167,6 +172,11 @@ Honest about what has and has not been checked:
   sample-exact. The C++ DSP is checked against NumPy and SciPy through the committed
   fixtures in `tests/fixtures` — the mel spectrogram to 1e-3, the zero-phase high-pass to
   1e-5. 28 test cases, 847 assertions.
+- **Verified end to end, outside a host.** The plug-in's own engine — discovery, load and the
+  whole conversion — was run on two sung phrases and compared against the reference render of
+  the same files: log-spectrogram correlation 0.93 and 0.91 against the reference, against
+  0.64 and 0.71 for the untouched source, with matching loudness. A 37-second phrase converts
+  in 21 seconds on sixteen cores, 0.58× real time, and a warm voice load takes 2 seconds.
 - **Built and loads.** The VST3 builds with ARA enabled, exports its factory, and `dlopen`s
   cleanly.
 - **Not yet verified.** End-to-end behaviour in a real host — ARA region editing, session

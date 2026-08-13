@@ -34,22 +34,13 @@ void VoiceModelLibrary::buildSearchPaths()
 
     searchPaths.push_back (getUserModelDirectory());
 
-    // A development build runs from a build tree; walk up looking for the repository's
-    // assets directory so freshly exported voices are found without installing them.
-    auto candidate = juce::File::getSpecialLocation (juce::File::currentExecutableFile).getParentDirectory();
-
-    for (int depth = 0; depth < 8 && candidate.exists(); ++depth)
-    {
-        const auto assets = candidate.getChildFile ("assets").getChildFile (modelsFolderName);
-
-        if (assets.isDirectory())
-        {
-            searchPaths.push_back (assets);
-            break;
-        }
-
-        candidate = candidate.getParentDirectory();
-    }
+   #if defined (RVCARA_DEVELOPMENT_MODEL_PATH)
+    // The working copy's own res/models, baked in at configure time. Locating it relative to
+    // the binary would not work: a plug-in is loaded from the host's plug-in folder, which is
+    // nowhere near the repository. On another machine the path simply does not exist and the
+    // installed locations above are all that is searched.
+    searchPaths.push_back (juce::File { RVCARA_DEVELOPMENT_MODEL_PATH });
+   #endif
 
     // `override` would be legal as an identifier but reads as the contextual keyword.
     if (const auto extraPaths = juce::SystemStats::getEnvironmentVariable (environmentVariableName, {});
