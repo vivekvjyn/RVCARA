@@ -17,11 +17,12 @@ namespace rvcara
     resident memory until the pages are touched and is shared between plugin
     instances by the operating system's page cache.
 
-    The format is documented in `tools/rvcara_export/binary_matrix.py`: a 32-byte
-    header of magic, version, element type and dimensions, then row-major float32.
-    The header is validated on load, including that the payload length agrees with
-    the declared dimensions, so a truncated download fails here rather than as a
-    segmentation fault during a render.
+    The format is written by the exporter's `binary_matrix.py`, and is spelled out here
+    because this is now the only description of it in the tree: a 32-byte header of
+    magic, version, element type and dimensions, then row-major float32. The header is
+    validated on load, including that the payload length agrees with the declared
+    dimensions, so a truncated download fails here rather than as a segmentation fault
+    during a render.
 */
 class BinaryMatrix
 {

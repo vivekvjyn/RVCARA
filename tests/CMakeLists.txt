@@ -26,5 +26,13 @@ target_compile_definitions(rvcara_tests PRIVATE
 # the tests that never touch a graph.
 rvcara_copy_onnxruntime_beside(rvcara_tests)
 
+# These three include nothing from libs/, so they can carry the strict tier — which is how
+# PitchConversions.h and ConversionSettings.h, header-only and framework-free, get judged by
+# it at all. The other three reach JUCE through BinaryMatrix, MelSpectrogram and juce::File.
+rvcara_apply_strict_warnings(
+    ConversionSettingsTests.cpp
+    PitchConversionsTests.cpp
+    SincResamplerTests.cpp)
+
 include(Catch)
 catch_discover_tests(rvcara_tests)

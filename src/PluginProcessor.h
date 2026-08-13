@@ -48,6 +48,15 @@ public:
     void releaseResources() override;
     void processBlock (juce::AudioBuffer<float>& buffer, juce::MidiBuffer& midiMessages) override;
 
+    /** Keeps the double-precision overload visible.
+
+        Declaring only the float one hides `processBlock (AudioBuffer<double>&, MidiBuffer&)`.
+        Nothing calls it — supportsDoublePrecisionProcessing() is false, and the conversion is
+        float throughout — but a hidden virtual is how a host silently gets a no-op instead of
+        the processing it asked for, so the base's version is named rather than shadowed.
+    */
+    using juce::AudioProcessor::processBlock;
+
     bool isBusesLayoutSupported (const BusesLayout& layouts) const override;
 
     juce::AudioProcessorEditor* createEditor() override;

@@ -39,7 +39,7 @@ BinaryMatrix BinaryMatrix::load (const juce::File& file)
         return matrix;
     }
 
-    const auto numBytes = static_cast<std::size_t> (mapping->getSize());
+    const auto numBytes = mapping->getSize();
 
     if (numBytes < headerSize)
     {

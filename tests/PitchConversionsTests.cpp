@@ -100,7 +100,7 @@ TEST_CASE ("the coarse pitch quantiser spans its range", "[pitch]")
 
     SECTION ("known bins agree with the reference quantiser")
     {
-        // Computed with the NumPy implementation in tools/rvcara_export/pipeline.py.
+        // Computed with the NumPy implementation in the exporter's pipeline.py.
         CHECK (quantiser.toBin (220.0) == 60);
         CHECK (quantiser.toBin (440.0) == 122);
         CHECK (quantiser.toBin (880.0) == 217);

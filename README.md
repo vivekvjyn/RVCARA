@@ -1,8 +1,8 @@
 # RVCARA
 
-Retrieval-based voice conversion as an audio plug-in. Drop it on a vocal track, pick a
-voice, and the vocal is re-sung in that voice — offline, on the CPU, with no Python at run
-time and nothing sent to a server.
+Retrieval-based voice conversion as an audio plug-in. Drop it on a vocal track and the vocal
+is re-sung in the trained voice — offline, on the CPU, with no Python at run time and nothing
+sent to a server. The voice loads by itself; there is nothing to choose.
 
 The model is [RVC](https://github.com/RVC-Project/Retrieval-based-Voice-Conversion-WebUI)
 v2. Voices are trained and exported with the sibling
@@ -46,7 +46,7 @@ model suitable for it.
 ```
 src/     All C++, flat, one rvcara namespace
 res/     Runtime resources; exported voices live in res/models/
-libs/    Submodules: JUCE, ARA_SDK, hnswlib, Catch2
+libs/    Submodules: JUCE, ARA_SDK, onnxruntime, hnswlib, Catch2
 tests/   Catch2 unit tests and fixtures
 docs/    Naming conventions and architecture
 ```
@@ -58,29 +58,42 @@ plug-in. `DocumentController`, `PlaybackRenderer` and `ConversionModification` a
 path; `InsertConverter` is the non-ARA one; both drive the same engine through the same
 `VoiceLoader`.
 
-Pure C++ and CMake. No Python, no scripting runtime, nothing interpreted at build time or
-run time.
+Pure C++ and CMake. Nothing interpreted at run time, and nothing of ours interpreted at build
+time — the one exception is ONNX Runtime's own build, below.
 
 ## Building
 
-Requires CMake 3.24+, a C++20 compiler, and the submodules. The ARA SDK is a superproject
-whose own contents are submodules, so the recursive init matters:
+Requires CMake 3.24+, a C++20 compiler, and the submodules. Two of them are superprojects
+whose own contents are submodules, so the extra inits matter:
 
 ```sh
 git clone https://github.com/vivekvjyn/RVCARA.git
 cd RVCARA
 git submodule update --init --depth 1
 git -C libs/ARA_SDK submodule update --init --depth 1 ARA_API ARA_Library
+git -C libs/onnxruntime submodule update --init --depth 1 cmake/external/onnx
 
 cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=RelWithDebInfo
 cmake --build build
 ctest --test-dir build --output-on-failure
 ```
 
-ONNX Runtime is not a submodule: the pinned prebuilt release is fetched at configure time
-and checked against a recorded SHA256. Building it from source takes tens of minutes and
-buys nothing, since only the CPU execution provider is used. Point
-`RVCARA_ONNXRUNTIME_ROOT` at an existing installation to override.
+**Every dependency is a submodule, ONNX Runtime included, so the commits this repository names
+are the whole of what it runs.** That has a price worth knowing before the first build:
+
+- ONNX Runtime takes 25–45 minutes to compile, once. It is built into
+  `build/onnxruntime-install` and reused; rebuilding the plug-in does not touch it.
+- Its build needs a **Python 3.10+ interpreter**, because its CMake generates the export
+  symbol list by running `tools/ci_build/gen_def.py`. Nothing in RVCARA needs Python and
+  nothing runs at plug-in load; this is ONNX Runtime's build requirement, and CMake checks
+  for it up front.
+- Its configure step reaches the network: ONNX Runtime fetches abseil, protobuf,
+  flatbuffers, re2, eigen, cpuinfo and the rest from `libs/onnxruntime/cmake/deps.txt`
+  rather than vendoring them.
+- Its build needs about 6 GB of disk and, at ten parallel jobs, around 8 GB of memory.
+
+`-DRVCARA_ONNXRUNTIME_ROOT=<path>` skips all of that and uses an existing installation —
+including one of Microsoft's published archives.
 
 Artefacts land in `build/RVCARA_artefacts/`, with the ONNX Runtime shared library copied
 beside each one.
@@ -179,6 +192,10 @@ Honest about what has and has not been checked:
   in 21 seconds on sixteen cores, 0.58× real time, and a warm voice load takes 2 seconds.
 - **Built and loads.** The VST3 builds with ARA enabled, exports its factory, and `dlopen`s
   cleanly.
+- **The from-source ONNX Runtime agrees with the prebuilt.** Converting the same phrase
+  through both gives a correlation of 0.999937, peak difference 2.5e-2 — not bit-identical,
+  because MLAS selects different kernels for the machine it was compiled on, and floating
+  point addition is not associative.
 - **Not yet verified.** End-to-end behaviour in a real host — ARA region editing, session
   persistence, and insert-mode capture alignment against the timeline. That needs a DAW, or
   JUCE's AudioPluginHost built with `JUCE_PLUGINHOST_ARA=1`.
@@ -191,6 +208,25 @@ mathematics and music-theory vocabularies, and it says which one wins where they
 
 Formatting is JUCE house style — Allman braces, four spaces, `foo (bar)` — applied by hand
 rather than by a checked-in `clang-format` configuration.
+
+### Warnings
+
+Two tiers, split by ownership rather than by taste. Every target gets `-Wall -Wextra
+-Wpedantic` plus `-Wshadow`, `-Wnon-virtual-dtor`, `-Wcast-align` and `-Woverloaded-virtual`,
+which JUCE's own sources pass. A strict tier — `-Wconversion`, `-Wsign-conversion`,
+`-Wdouble-promotion`, `-Wfloat-conversion`, `-Wold-style-cast`, `-Wuseless-cast`,
+`-Wcast-qual`, `-Wextra-semi` — goes on the translation units that include no third-party
+header, which is why the DSP core is kept free of framework headers.
+
+A warning flag judges every header a unit includes, and JUCE's contain 6,166 old-style casts
+and 116 float promotions of their own. Nothing here silences them: the flags simply are not
+applied to units that include JUCE, and the cost is that those files are checked less
+strictly. Checked by hand with the strict set appended and the output filtered to `src/`,
+**every source in this repository is clean under the full strict tier.**
+
+A full build emits two warnings, both `-Wmaybe-uninitialized` inside JUCE's vendored copy of
+harfbuzz, both GCC 16 false positives in code that is not ours to change. They are left
+visible rather than switched off.
 
 ## Licence
 

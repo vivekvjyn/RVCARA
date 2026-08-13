@@ -14,10 +14,11 @@ namespace rvcara
 
 /** Converts a performance through a voice model.
 
-    The whole pipeline, in one place, transcribed from `infer/vc/pipeline.py` and from
-    `tools/rvcara_export/pipeline.py` — the latter being the NumPy implementation that
-    was checked against the reference render before any of this was written. When this
-    and the reference disagree, that Python file is the arbiter.
+    The whole pipeline, in one place, transcribed from RVC's `infer/vc/pipeline.py` and from
+    the exporter's `pipeline.py` — the latter being the NumPy implementation that was checked
+    against the reference render before any of this was written. When this and the reference
+    disagree, that NumPy implementation is the arbiter. It is no longer in the tree; see
+    tests/fixtures/README.md for where it went.
 
     The result is **mono at the source's own sample rate**, not at the model's. That
     choice matters for ARA: the renderer needs to map a song-time sample range onto a

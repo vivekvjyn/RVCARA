@@ -34,11 +34,33 @@ jobs:
           # further nested dependencies that nothing here builds.
           submodules: false
 
+      # Reads the pinned commit out of the tree, without checking the submodule out: it is a
+      # 900 MB clone, and on a cache hit nothing here needs it.
+      - name: Read the pinned ONNX Runtime commit
+        id: onnxruntime
+        shell: bash
+        run: echo "sha=$(git rev-parse HEAD:libs/onnxruntime)" >> "$GITHUB_OUTPUT"
+
+      # Building ONNX Runtime takes half an hour on a developer machine and longer on a
+      # two-core runner, so the install tree is cached against that commit. A miss pays the
+      # cost once per platform; a hit skips both the clone and the build, because the
+      # configure step below then points RVCARA_ONNXRUNTIME_ROOT at what was restored.
+      - name: Restore the ONNX Runtime build
+        uses: actions/cache@v4
+        with:
+          path: build/onnxruntime-install
+          key: onnxruntime-${{ runner.os }}-${{ steps.onnxruntime.outputs.sha }}
+
       - name: Initialise submodules
         shell: bash
         run: |
-          git submodule update --init --depth 1
+          git submodule update --init --depth 1 libs/ARA_SDK libs/Catch2 libs/JUCE libs/hnswlib
           git -C libs/ARA_SDK submodule update --init --depth 1 ARA_API ARA_Library
+
+          if [ ! -e build/onnxruntime-install/lib ]; then
+            git submodule update --init --depth 1 libs/onnxruntime
+            git -C libs/onnxruntime submodule update --init --depth 1 cmake/external/onnx
+          fi
 
       - name: Install Linux dependencies
         if: runner.os == 'Linux'
@@ -53,16 +75,15 @@ jobs:
         if: runner.os != 'Linux'
         uses: seanmiddleditch/gha-setup-ninja@v5
 
-      # The ONNX Runtime archive is around 60 MB and is fetched at configure time. Caching
-      # it keeps the download off every run.
-      - name: Cache ONNX Runtime download
-        uses: actions/cache@v4
-        with:
-          path: build/_deps/onnxruntime-subbuild
-          key: onnxruntime-1.23.2-${{ runner.os }}
-
       - name: Configure
-        run: cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=RelWithDebInfo
+        shell: bash
+        run: |
+          if [ -e build/onnxruntime-install/lib ]; then
+            cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=RelWithDebInfo \
+                  -DRVCARA_ONNXRUNTIME_ROOT="$PWD/build/onnxruntime-install"
+          else
+            cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=RelWithDebInfo
+          fi
 
       - name: Build
         run: cmake --build build --parallel

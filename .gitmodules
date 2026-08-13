@@ -10,3 +10,7 @@
 [submodule "libs/Catch2"]
 	path = libs/Catch2
 	url = https://github.com/catchorg/Catch2.git
+[submodule "libs/onnxruntime"]
+	path = libs/onnxruntime
+	url = https://github.com/microsoft/onnxruntime.git
+	shallow = true

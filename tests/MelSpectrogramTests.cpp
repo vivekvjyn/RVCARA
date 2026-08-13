@@ -19,8 +19,8 @@ namespace
 
     MelSpectrogram::Configuration getReferenceConfiguration()
     {
-        // The values the reference RMVPE front end uses, mirrored from
-        // tools/rvcara_export/pitch_estimator.py.
+        // The values the reference RMVPE front end uses, mirrored from the exporter's
+        // pitch_estimator.py.
         MelSpectrogram::Configuration configuration;
         configuration.fftSize = 1024;
         configuration.windowSize = 1024;
@@ -67,7 +67,7 @@ TEST_CASE ("a signal shorter than the reflection is refused rather than guessed 
 
 TEST_CASE ("the spectrogram matches the reference implementation", "[mel]")
 {
-    // The fixture was produced by tools/rvcara_export/fixtures.py using NumPy, SciPy and
+    // The fixture was produced by the exporter's fixtures.py using NumPy, SciPy and
     // librosa's filter bank — the same code path the exported model was validated
     // against. This is the test that would catch a symmetric Hann window, power instead
     // of magnitude, a missing reflection, or a transposed filter bank; all four produce

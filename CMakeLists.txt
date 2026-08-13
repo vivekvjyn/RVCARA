@@ -21,62 +21,136 @@ option(RVCARA_BUILD_TESTS "Build the unit tests" ON)
 # ==================================================================================
 # ONNX Runtime
 #
-# The prebuilt release is used rather than a submodule. Building it from source takes tens
-# of minutes and pulls in its own dependency tree for nothing: the CPU execution provider is
-# the only one used here, and the released binaries are what Microsoft tests. Pinned by
-# SHA256 so a build cannot silently pick up different bits.
+# Built from libs/onnxruntime, the pinned submodule, so that every line of code this plug-in
+# runs is a commit this repository names. Only the CPU execution provider is wanted, and
+# only the shared library and its public headers are installed.
 #
-# Set RVCARA_ONNXRUNTIME_ROOT to use an existing installation, which is also the escape
-# hatch for platforms with no published archive.
+# What this costs, so nobody is surprised by it:
+#
+# - The first build takes 25 to 45 minutes. It is built once into build/onnxruntime-install
+#   and reused after that; a rebuild of the plug-in does not touch it.
+# - Python 3 is a *build tool* for it. cmake/onnxruntime.cmake generates the export symbol
+#   list by running tools/ci_build/gen_def.py, so a shared-library build cannot proceed
+#   without an interpreter. Nothing in RVCARA needs Python, and nothing here runs at
+#   plug-in load; this is ONNX Runtime's build requirement, checked for up front so the
+#   failure is a sentence rather than a stack of CMake errors 30 seconds in.
+# - It configures with the network open: ONNX Runtime fetches its own dependency tree —
+#   abseil, protobuf, flatbuffers, re2, eigen, cpuinfo and the rest listed in
+#   libs/onnxruntime/cmake/deps.txt — rather than vendoring it. The submodule pins ONNX
+#   Runtime; deps.txt pins those.
+#
+# Three arguments below are not optional, all three because a pinned release is older than the
+# toolchain compiling it:
+#
+# - --compile-no-warning-as-error, because ONNX Runtime sets COMPILE_WARNING_AS_ERROR on every
+#   one of its targets and a newer compiler always finds something new to say. GCC 16 rejects
+#   1.23.2 outright over -Wsfinae-incomplete and -Wdangling-pointer, in code that is fine.
+# - CMAKE_POLICY_VERSION_MINIMUM, because CMake 4 refuses the pre-3.5 minimums that several of
+#   those fetched dependencies still declare.
+# - -include cstdint on GCC 15 and newer, for the one place the sources genuinely are wrong.
+#
+# Set RVCARA_ONNXRUNTIME_ROOT to an existing installation to skip all of it — the escape
+# hatch for CI, for a distribution package, and for anyone who would rather use the binaries
+# Microsoft tests.
 # ==================================================================================
 
-set(RVCARA_ONNXRUNTIME_VERSION "1.23.2" CACHE STRING "ONNX Runtime release to download")
-set(RVCARA_ONNXRUNTIME_ROOT "" CACHE PATH "Existing ONNX Runtime installation, if any")
+set(RVCARA_ONNXRUNTIME_ROOT "" CACHE PATH
+    "Existing ONNX Runtime installation to use instead of building libs/onnxruntime")
 
 if(RVCARA_ONNXRUNTIME_ROOT)
     set(onnxruntimeRoot "${RVCARA_ONNXRUNTIME_ROOT}")
     message(STATUS "ONNX Runtime: using ${onnxruntimeRoot}")
-else()
-    if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
-        set(archive "onnxruntime-linux-x64-${RVCARA_ONNXRUNTIME_VERSION}.tgz")
-        set(archiveHash "1fa4dcaef22f6f7d5cd81b28c2800414350c10116f5fdd46a2160082551c5f9b")
-    elseif(APPLE)
-        # universal2 carries arm64 and x86_64, so one download serves either or both.
-        set(archive "onnxruntime-osx-universal2-${RVCARA_ONNXRUNTIME_VERSION}.tgz")
-        set(archiveHash "49ae8e3a66ccb18d98ad3fe7f5906b6d7887df8a5edd40f49eb2b14e20885809")
-    elseif(WIN32)
-        set(archive "onnxruntime-win-x64-${RVCARA_ONNXRUNTIME_VERSION}.zip")
-        set(archiveHash "0b38df9af21834e41e73d602d90db5cb06dbd1ca618948b8f1d66d607ac9f3cd")
+
+    # An install tree puts the public headers in include/onnxruntime; the published archives put
+    # them straight in include. Both are accepted, since either may be handed to us here.
+    if(EXISTS "${onnxruntimeRoot}/include/onnxruntime/onnxruntime_cxx_api.h")
+        set(onnxruntimeIncludeDir "${onnxruntimeRoot}/include/onnxruntime")
+    elseif(EXISTS "${onnxruntimeRoot}/include/onnxruntime_cxx_api.h")
+        set(onnxruntimeIncludeDir "${onnxruntimeRoot}/include")
     else()
+        message(FATAL_ERROR "No onnxruntime_cxx_api.h under ${onnxruntimeRoot}/include")
+    endif()
+else()
+    if(NOT EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/libs/onnxruntime/cmake/CMakeLists.txt")
         message(FATAL_ERROR
-            "No pinned ONNX Runtime archive for ${CMAKE_SYSTEM_NAME}. "
-            "Build it yourself and set RVCARA_ONNXRUNTIME_ROOT.")
+            "libs/onnxruntime is empty. Run:\n"
+            "    git submodule update --init --depth 1 libs/onnxruntime\n"
+            "    git -C libs/onnxruntime submodule update --init --depth 1 cmake/external/onnx")
     endif()
 
-    if(NOT RVCARA_ONNXRUNTIME_VERSION STREQUAL "1.23.2")
-        message(WARNING
-            "The pinned checksums are for 1.23.2; ${RVCARA_ONNXRUNTIME_VERSION} will fail its "
-            "hash check. Set RVCARA_ONNXRUNTIME_ROOT, or update the hashes here.")
+    # ONNX Runtime's own submodule, its copy of the ONNX protobuf schema. Its build stops with
+    # a less helpful message than this one if it is missing.
+    if(NOT EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/libs/onnxruntime/cmake/external/onnx/CMakeLists.txt")
+        message(FATAL_ERROR
+            "ONNX Runtime's schema submodule is not checked out. Run:\n"
+            "    git -C libs/onnxruntime submodule update --init --depth 1 cmake/external/onnx")
     endif()
 
-    include(FetchContent)
-    FetchContent_Declare(onnxruntime
-        URL "https://github.com/microsoft/onnxruntime/releases/download/v${RVCARA_ONNXRUNTIME_VERSION}/${archive}"
-        URL_HASH "SHA256=${archiveHash}"
-        DOWNLOAD_EXTRACT_TIMESTAMP TRUE)
+    find_package(Python3 3.10 COMPONENTS Interpreter)
 
-    message(STATUS "ONNX Runtime: fetching ${archive}")
-    FetchContent_MakeAvailable(onnxruntime)
-    set(onnxruntimeRoot "${onnxruntime_SOURCE_DIR}")
-endif()
+    if(NOT Python3_Interpreter_FOUND)
+        message(FATAL_ERROR
+            "Building ONNX Runtime needs a Python 3.10+ interpreter for its symbol-list "
+            "generator (tools/ci_build/gen_def.py). Install one, or point "
+            "RVCARA_ONNXRUNTIME_ROOT at a prebuilt installation.")
+    endif()
 
-if(NOT EXISTS "${onnxruntimeRoot}/include/onnxruntime_cxx_api.h")
-    message(FATAL_ERROR "No ONNX Runtime headers under ${onnxruntimeRoot}/include")
+    include(ExternalProject)
+
+    set(onnxruntimeRoot "${CMAKE_BINARY_DIR}/onnxruntime-install")
+    set(onnxruntimeCxxFlags "")
+
+    # 1.23.2 predates GCC 15, from which libstdc++ stopped pulling <cstdint> in transitively;
+    # core/common/semver.h uses uint32_t without including it. Forcing the header in ahead of
+    # every translation unit fixes it without patching a pinned submodule.
+    if(CMAKE_CXX_COMPILER_ID STREQUAL "GNU" AND CMAKE_CXX_COMPILER_VERSION VERSION_GREATER_EQUAL 15)
+        set(onnxruntimeCxxFlags "-include cstdint")
+    endif()
+
+    if(WIN32)
+        set(onnxruntimeBuiltLibrary "${onnxruntimeRoot}/bin/onnxruntime.dll")
+    elseif(APPLE)
+        set(onnxruntimeBuiltLibrary "${onnxruntimeRoot}/lib/libonnxruntime.dylib")
+    else()
+        set(onnxruntimeBuiltLibrary "${onnxruntimeRoot}/lib/libonnxruntime.so")
+    endif()
+
+    message(STATUS "ONNX Runtime: building libs/onnxruntime into ${onnxruntimeRoot}")
+
+    ExternalProject_Add(rvcara_onnxruntime_build
+        SOURCE_DIR "${CMAKE_CURRENT_SOURCE_DIR}/libs/onnxruntime/cmake"
+        BINARY_DIR "${CMAKE_BINARY_DIR}/onnxruntime-build"
+        INSTALL_DIR "${onnxruntimeRoot}"
+        CMAKE_ARGS
+            --compile-no-warning-as-error
+            "-DCMAKE_C_COMPILER=${CMAKE_C_COMPILER}"
+            "-DCMAKE_CXX_COMPILER=${CMAKE_CXX_COMPILER}"
+            "-DCMAKE_INSTALL_PREFIX=${onnxruntimeRoot}"
+            "-DCMAKE_CXX_FLAGS=${onnxruntimeCxxFlags}"
+            -DCMAKE_INSTALL_LIBDIR=lib
+            # Release whatever this project is built as: ONNX Runtime in Debug is an order of
+            # magnitude slower, and nobody steps into it from here.
+            -DCMAKE_BUILD_TYPE=Release
+            -DCMAKE_POSITION_INDEPENDENT_CODE=ON
+            -DCMAKE_POLICY_VERSION_MINIMUM=3.5
+            -Donnxruntime_BUILD_SHARED_LIB=ON
+            -Donnxruntime_BUILD_UNIT_TESTS=OFF
+            -Donnxruntime_BUILD_BENCHMARKS=OFF
+            -Donnxruntime_ENABLE_PYTHON=OFF
+        BUILD_BYPRODUCTS "${onnxruntimeBuiltLibrary}"
+        USES_TERMINAL_CONFIGURE TRUE
+        USES_TERMINAL_BUILD TRUE
+        USES_TERMINAL_INSTALL TRUE)
+
+    # `install(TARGETS ... PUBLIC_HEADER)` in cmake/onnxruntime.cmake puts them here. Stated
+    # rather than probed, because on a first build nothing is installed yet and a probe would
+    # answer differently before and after.
+    set(onnxruntimeIncludeDir "${onnxruntimeRoot}/include/onnxruntime")
 endif()
 
 if(WIN32)
     set(onnxruntimeImplib "${onnxruntimeRoot}/lib/onnxruntime.lib")
-    set(onnxruntimeLibrary "${onnxruntimeRoot}/lib/onnxruntime.dll")
+    set(onnxruntimeLibrary "${onnxruntimeRoot}/bin/onnxruntime.dll")
 elseif(APPLE)
     set(onnxruntimeImplib "${onnxruntimeRoot}/lib/libonnxruntime.dylib")
     set(onnxruntimeLibrary "${onnxruntimeImplib}")
@@ -85,30 +159,61 @@ else()
     set(onnxruntimeLibrary "${onnxruntimeImplib}")
 endif()
 
-if(NOT EXISTS "${onnxruntimeImplib}")
-    message(FATAL_ERROR "No ONNX Runtime library at ${onnxruntimeImplib}")
-endif()
+# An imported target rejects an include directory that does not exist yet, and when the library
+# is built by this project the install tree appears only part way through the build.
+file(MAKE_DIRECTORY "${onnxruntimeIncludeDir}")
 
 add_library(rvcara_onnxruntime SHARED IMPORTED GLOBAL)
 set_target_properties(rvcara_onnxruntime PROPERTIES
     IMPORTED_LOCATION "${onnxruntimeLibrary}"
     IMPORTED_IMPLIB "${onnxruntimeImplib}"
-    INTERFACE_INCLUDE_DIRECTORIES "${onnxruntimeRoot}/include")
+    INTERFACE_INCLUDE_DIRECTORIES "${onnxruntimeIncludeDir}")
 
 set(RVCARA_ONNXRUNTIME_LIBRARY_DIR "${onnxruntimeRoot}/lib")
 
-# A plug-in cannot rely on the host's library search path, so every artefact gets its own
-# copy. The whole lib directory is copied on Linux and macOS because the loader follows the
-# versioned soname, not the bare filename.
+#[[ Makes `target` wait for ONNX Runtime, when this project is the one building it.
+
+    An imported target carries no build order, so anything that compiles against those headers
+    has to be told to wait for them itself.
+]]
+function(rvcara_wait_for_onnxruntime target)
+    if(TARGET rvcara_onnxruntime_build)
+        add_dependencies(${target} rvcara_onnxruntime_build)
+    endif()
+endfunction()
+
+# A plug-in cannot rely on the host's library search path, so every artefact gets its own copy.
+#
+# On Linux and macOS that means the whole soname chain — the loader asks for libonnxruntime.so.1,
+# not the bare name — which is a set of files that cannot be listed at configure time, because on
+# a first build ONNX Runtime has not been built yet. Hence a generated script that globs at build
+# time. Copying the library directory wholesale would be simpler but would also deposit the
+# install tree's cmake/ and pkgconfig/ directories inside every artefact.
+set(rvcaraCopyOnnxRuntimeScript "${CMAKE_BINARY_DIR}/rvcara_copy_onnxruntime.cmake")
+
+file(WRITE "${rvcaraCopyOnnxRuntimeScript}" "\
+file(GLOB libraries \"\${libraryDir}/libonnxruntime*\")
+
+foreach(library \${libraries})
+    if(NOT IS_DIRECTORY \"\${library}\")
+        file(COPY \"\${library}\" DESTINATION \"\${destination}\" FOLLOW_SYMLINK_CHAIN)
+    endif()
+endforeach()
+")
+
 function(rvcara_copy_onnxruntime_beside target)
+    rvcara_wait_for_onnxruntime(${target})
+
     if(WIN32)
         add_custom_command(TARGET ${target} POST_BUILD
             COMMAND ${CMAKE_COMMAND} -E copy_if_different
                     "${onnxruntimeLibrary}" "$<TARGET_FILE_DIR:${target}>" VERBATIM)
     else()
         add_custom_command(TARGET ${target} POST_BUILD
-            COMMAND ${CMAKE_COMMAND} -E copy_directory_if_different
-                    "${RVCARA_ONNXRUNTIME_LIBRARY_DIR}" "$<TARGET_FILE_DIR:${target}>" VERBATIM)
+            COMMAND ${CMAKE_COMMAND}
+                    "-DlibraryDir=${RVCARA_ONNXRUNTIME_LIBRARY_DIR}"
+                    "-Ddestination=$<TARGET_FILE_DIR:${target}>"
+                    -P "${rvcaraCopyOnnxRuntimeScript}" VERBATIM)
     endif()
 endfunction()
 
@@ -131,31 +236,6 @@ endif()
 
 add_subdirectory(libs/JUCE)
 
-# JUCE's headers are not ours to fix, and the strict tier further down finds several hundred
-# old-style casts and float promotions inside them — noise that buries anything real in our own
-# code. Promoting the module include directories to system includes silences warnings that
-# originate in those headers while leaving our sources fully checked. Done by rewriting the
-# targets' properties because JUCE's own CMake exports them as ordinary include directories.
-function(rvcara_treat_includes_as_system directory)
-    get_property(targetsInDirectory DIRECTORY "${directory}" PROPERTY BUILDSYSTEM_TARGETS)
-    get_property(subdirectories DIRECTORY "${directory}" PROPERTY SUBDIRECTORIES)
-
-    foreach(target ${targetsInDirectory})
-        get_target_property(includeDirectories ${target} INTERFACE_INCLUDE_DIRECTORIES)
-
-        if(includeDirectories)
-            set_target_properties(${target} PROPERTIES
-                INTERFACE_SYSTEM_INCLUDE_DIRECTORIES "${includeDirectories}")
-        endif()
-    endforeach()
-
-    foreach(subdirectory ${subdirectories})
-        rvcara_treat_includes_as_system("${subdirectory}")
-    endforeach()
-endfunction()
-
-rvcara_treat_includes_as_system("${CMAKE_CURRENT_SOURCE_DIR}/libs/JUCE")
-
 # Defined by JUCE's CMake utilities, so it can only be called after JUCE is added — but it
 # must still precede any target depending on the ARA SDK. JUCE compiles the ARA library's
 # sources itself, so an include path is all it needs from us.
@@ -169,11 +249,27 @@ target_include_directories(rvcara_hnswlib SYSTEM INTERFACE "${CMAKE_CURRENT_SOUR
 # ==================================================================================
 # Warnings
 #
-# JUCE ships its modules as interface sources, so the module .cpp and .c files compile as
-# part of whichever target links them, and target-level flags reach JUCE's code too. JUCE is
-# not clean under a strict set — its converters promote float to double by design and the
-# vendored FLAC and Ogg are C, which rejects the C++-only flags. Hence two tiers: a
-# target-wide set restricted to C++, and a stricter per-source set for our own DSP.
+# Two tiers, and the line between them is about ownership rather than taste.
+#
+# The target-wide tier is everything JUCE's own code passes cleanly. It is restricted to C++
+# because JUCE ships its modules as interface sources — the module .cpp and .c files compile as
+# part of whichever target links them, so target-level flags reach JUCE's code, and the
+# vendored FLAC and Ogg are C, which rejects the C++-only flags.
+#
+# The strict tier catches what actually costs something here: a float silently widened to
+# double, an implicit narrowing, a C-style cast hiding a reinterpret. A warning flag judges
+# every header a translation unit includes, and JUCE's headers contain 6,166 old-style casts
+# and 116 float promotions of their own. GCC offers no way to exempt them that does not also
+# stop it looking at our code, so nothing is silenced: the strict tier is applied to exactly
+# those translation units that include no third-party header, and the DSP core is kept free of
+# framework headers so that it can carry it. Units that must include JUCE — the plug-in, the
+# ARA layer, and the engine glue that reports errors as juce::String — get the target-wide tier
+# only. That is a real loss of checking on those files, and the honest price of not reaching
+# for a silencer. To check one of them anyway, compile it with the strict flags appended and
+# read the diagnostics whose path is under src/:
+#
+#   c++ $(rvcara flags from build/compile_commands.json) -Wconversion -Wold-style-cast \
+#       -c src/ConversionEngine.cpp -o /dev/null 2>&1 | grep rvcplugin/src/
 # ==================================================================================
 
 add_library(rvcara_warnings INTERFACE)
@@ -189,6 +285,11 @@ else()
             -Woverloaded-virtual>)  # catches a mistyped ARA override
 endif()
 
+#[[ Applies the strict tier to third-party-free translation units.
+
+    Source properties are directory-scoped, so this has to be called from the CMakeLists.txt
+    that compiles the files, not from here on behalf of a subdirectory.
+]]
 function(rvcara_apply_strict_warnings)
     if(MSVC)
         return()
@@ -198,7 +299,12 @@ function(rvcara_apply_strict_warnings)
         set_property(SOURCE "${sourceFile}" APPEND PROPERTY COMPILE_OPTIONS
             -Wdouble-promotion      # float32 audio silently widened to double
             -Wfloat-conversion
-            -Wold-style-cast)
+            -Wconversion            # and every other implicit narrowing
+            -Wsign-conversion       # a negative index into a std::size_t
+            -Wold-style-cast
+            -Wuseless-cast
+            -Wcast-qual
+            -Wextra-semi)
     endforeach()
 endfunction()
 
@@ -226,6 +332,9 @@ set(RVCARA_ENGINE_SOURCES
 
 add_library(rvcara_engine STATIC ${RVCARA_ENGINE_SOURCES})
 target_include_directories(rvcara_engine PUBLIC src)
+
+# The first thing this compiles is an ONNX Runtime header, which may not exist yet.
+rvcara_wait_for_onnxruntime(rvcara_engine)
 
 target_link_libraries(rvcara_engine
     PUBLIC
@@ -328,19 +437,11 @@ target_link_libraries(RVCARA
         juce::juce_recommended_config_flags
         juce::juce_recommended_lto_flags)
 
-# The DSP and the pipeline are where a silent float-to-double promotion or a C-style cast
-# actually costs something. FeatureRetriever is excluded because hnswlib's headers fail it.
+# The resampler and the filter are the whole of the DSP that owes nothing to a framework —
+# verified with `c++ -MM`, which lists no header from libs/ for either — so they carry the
+# strict tier. MelSpectrogram cannot join them while it uses juce::dsp::FFT, and the pipeline
+# and plug-in files report errors as juce::String.
 rvcara_apply_strict_warnings(
-    src/ConversionEngine.cpp
-    src/ConversionModification.cpp
-    src/DocumentController.cpp
-    src/InsertConverter.cpp
-    src/MelSpectrogram.cpp
-    src/PitchCurveView.cpp
-    src/PitchEstimator.cpp
-    src/PlaybackRenderer.cpp
-    src/PluginEditor.cpp
-    src/PluginProcessor.cpp
     src/SincResampler.cpp
     src/ZeroPhaseFilter.cpp)
 
