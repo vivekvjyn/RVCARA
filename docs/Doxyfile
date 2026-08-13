@@ -1,0 +1,31 @@
+PROJECT_NAME           = RVCARA
+PROJECT_NUMBER         = 0.1.0
+PROJECT_BRIEF          = "Retrieval-based voice conversion as an ARA plug-in"
+
+INPUT                  = ../src
+RECURSIVE              = YES
+FILE_PATTERNS          = *.h *.cpp
+OUTPUT_DIRECTORY       = .
+HTML_OUTPUT            = html
+GENERATE_LATEX         = NO
+
+EXTRACT_ALL            = NO
+EXTRACT_PRIVATE        = NO
+EXTRACT_STATIC         = YES
+HIDE_UNDOC_MEMBERS     = NO
+JAVADOC_AUTOBRIEF      = YES
+QT_AUTOBRIEF           = YES
+MARKDOWN_SUPPORT       = YES
+AUTOLINK_SUPPORT       = YES
+
+WARN_IF_UNDOCUMENTED   = NO
+WARN_IF_DOC_ERROR      = YES
+WARN_NO_PARAMDOC       = YES
+QUIET                  = YES
+
+SORT_MEMBER_DOCS       = NO
+SHOW_INCLUDE_FILES     = YES
+GENERATE_TREEVIEW      = YES
+DISABLE_INDEX          = NO
+FULL_PATH_NAMES        = YES
+STRIP_FROM_PATH        = ../src

@@ -44,19 +44,32 @@ model suitable for it.
 ## Layout
 
 ```
-src/     All C++, flat, one rvcara namespace
-res/     Runtime resources; exported voices live in res/models/
-libs/    Submodules: JUCE, ARA_SDK, onnxruntime, hnswlib, Catch2
-tests/   Catch2 unit tests and fixtures
-docs/    Naming conventions and architecture
+src/
+  Processor.{h,cpp}    the plug-in
+  Editor.{h,cpp}       the panel
+  common/              shared value types and readers: ConversionSettings, BinaryMatrix
+  dsp/                 framework-free signal processing: resampler, filter, mel, pitch maths
+  model/               the voice and its inference: manifest, sessions, engine, loader
+  ara/                 the ARA path: document controller, playback renderer, modification
+  insert/              the non-ARA path: capture and render in place
+  ui/                  the look and feel and the pitch display
+res/                   runtime resources; exported voices live in res/models/
+libs/                  submodules: JUCE, ARA_SDK, onnxruntime, googletest, hnswlib
+tests/                 GoogleTest unit tests and fixtures
+docs/                  Doxyfile; `cmake --build build --target rvcara_docs` writes docs/html
 ```
 
-Within `src/`, the conversion engine (`ConversionEngine`, `VoiceModel`, `PitchEstimator`,
-`FeatureRetriever`, the DSP) knows nothing about ARA or about plug-in formats: it takes a
-buffer and returns a buffer, which is why the tests link it directly without instantiating a
-plug-in. `DocumentController`, `PlaybackRenderer` and `ConversionModification` are the ARA
-path; `InsertConverter` is the non-ARA one; both drive the same engine through the same
-`VoiceLoader`.
+Only the two JUCE entry points sit at the top of `src/`. Everything else is grouped by the
+layer it belongs to, and includes are path-qualified — `#include "dsp/SincResampler.h"` — so a
+file's dependencies name their layer.
+
+The code carries no comments. What a name cannot say is either documented as Doxygen on the
+declaration or written down here.
+
+`dsp/`, `common/` and `model/` know nothing about ARA or about plug-in formats: they take a
+buffer and return a buffer, which is why the tests link them directly without instantiating a
+plug-in. `ara/` and `insert/` are the two ways audio arrives, and both drive the same engine
+through the same `VoiceLoader`.
 
 Pure C++ and CMake. Nothing interpreted at run time, and nothing of ours interpreted at build
 time — the one exception is ONNX Runtime's own build, below.
@@ -95,8 +108,10 @@ are the whole of what it runs.** That has a price worth knowing before the first
 `-DRVCARA_ONNXRUNTIME_ROOT=<path>` skips all of that and uses an existing installation —
 including one of Microsoft's published archives.
 
-Artefacts land in `build/RVCARA_artefacts/`, with the ONNX Runtime shared library copied
-beside each one.
+**VST3 and LV2 are built everywhere, AU on macOS only** — the format list follows the host
+operating system, locally and in CI alike. Artefacts land in `build/RVCARA_artefacts/`, each
+with the ONNX Runtime shared library and its soname chain copied beside it, and `$ORIGIN` in
+the runpath so they are found there.
 
 On Linux, JUCE needs the usual development packages — ALSA, FreeType, Fontconfig, X11 and
 GL. See `libs/JUCE/docs/Linux Dependencies.md`.
@@ -208,11 +223,11 @@ weights, so the nearest one or two dominate and a miss in the tail is inaudible.
 
 Honest about what has and has not been checked:
 
-- **Verified.** The exported assets match the reference implementation on real audio: pitch
+- **Verified.** 38 GoogleTest cases pass. The exported assets match the reference implementation on real audio: pitch
   within 1.5–6.8 cents, correlation ≥ 0.999, log-mel distance 0.30–0.60, durations
   sample-exact. The C++ DSP is checked against NumPy and SciPy through the committed
   fixtures in `tests/fixtures` — the mel spectrogram to 1e-3, the zero-phase high-pass to
-  1e-5. 28 test cases, 847 assertions.
+  1e-5.
 - **Verified end to end, outside a host.** The plug-in's own engine — discovery, load and the
   whole conversion — was run on two sung phrases and compared against the reference render of
   the same files: log-spectrogram correlation 0.93 and 0.91 against the reference, against
@@ -230,12 +245,21 @@ Honest about what has and has not been checked:
 
 ## Conventions
 
-`docs/naming.md` is the authority on identifier naming, and is worth reading before
-contributing: this codebase sits across plug-in framework, DSP, machine learning,
-mathematics and music-theory vocabularies, and it says which one wins where they disagree.
+This codebase sits across plug-in framework, DSP, machine learning, mathematics and
+music-theory vocabularies. Where they disagree, the order of precedence is: JUCE house style
+for anything written in C++, the originating API's spelling at a boundary, then the field's
+published term over a paraphrase.
 
 Formatting is JUCE house style — Allman braces, four spaces, `foo (bar)` — applied by hand
 rather than by a checked-in `clang-format` configuration.
+
+Names follow the framework and the field they belong to, in that order: JUCE house style for
+C++ (`PascalCase` types and files, `camelCase` functions and variables, `num` for counts, no
+member decoration, no `k` prefix), the originating API's spelling at a boundary (ARA entry
+points, ONNX tensor names, manifest keys), and the published term over a paraphrase everywhere
+else — `fundamentalFrequency`, `cents`, `retrievalRatio`. Colours are named for their role
+rather than their hue, `describe...` returns text meant for a human, and directories are the
+layers listed above.
 
 ### Warnings
 

@@ -35,3 +35,4 @@ retrieval.bin
 
 # Local render output from the verification pass
 output/
+docs/html/

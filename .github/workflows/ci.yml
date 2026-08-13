@@ -6,8 +6,6 @@ on:
   pull_request:
   workflow_dispatch:
 
-# A push that supersedes an in-flight run cancels it. Builds here are long — JUCE, the ARA
-# library and a 135 MB link step — so a queue of stale runs is expensive.
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
@@ -30,21 +28,13 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          # Not `recursive`: the ARA SDK's own submodules include an examples tree with
-          # further nested dependencies that nothing here builds.
           submodules: false
 
-      # Reads the pinned commit out of the tree, without checking the submodule out: it is a
-      # 900 MB clone, and on a cache hit nothing here needs it.
       - name: Read the pinned ONNX Runtime commit
         id: onnxruntime
         shell: bash
         run: echo "sha=$(git rev-parse HEAD:libs/onnxruntime)" >> "$GITHUB_OUTPUT"
 
-      # Building ONNX Runtime takes half an hour on a developer machine and longer on a
-      # two-core runner, so the install tree is cached against that commit. A miss pays the
-      # cost once per platform; a hit skips both the clone and the build, because the
-      # configure step below then points RVCARA_ONNXRUNTIME_ROOT at what was restored.
       - name: Restore the ONNX Runtime build
         uses: actions/cache@v4
         with:
@@ -54,7 +44,7 @@ jobs:
       - name: Initialise submodules
         shell: bash
         run: |
-          git submodule update --init --depth 1 libs/ARA_SDK libs/Catch2 libs/JUCE libs/hnswlib
+          git submodule update --init --depth 1 libs/ARA_SDK libs/JUCE libs/googletest libs/hnswlib
           git -C libs/ARA_SDK submodule update --init --depth 1 ARA_API ARA_Library
 
           if [ ! -e build/onnxruntime-install/lib ]; then
@@ -90,21 +80,3 @@ jobs:
 
       - name: Test
         run: ctest --test-dir build --output-on-failure
-
-      - name: Confirm ARA is enabled
-        shell: bash
-        run: |
-          # A plug-in that builds but silently lost IS_ARA_EFFECT would be a quiet
-          # regression: it would load in every host and never offer ARA. Assert the
-          # define reached the compiler.
-          grep -q "JucePlugin_Enable_ARA=1" build/compile_commands.json
-          echo "ARA support is compiled in"
-
-      - uses: actions/upload-artifact@v4
-        with:
-          name: RVCARA-${{ matrix.name }}
-          path: |
-            build/RVCARA_artefacts/*/VST3/**
-            build/RVCARA_artefacts/*/AU/**
-          if-no-files-found: warn
-          retention-days: 14

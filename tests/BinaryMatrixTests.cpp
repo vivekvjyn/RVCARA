@@ -1,29 +1,25 @@
-#include "BinaryMatrix.h"
+#include "common/BinaryMatrix.h"
 
-#include <catch2/catch_test_macros.hpp>
+#include <gtest/gtest.h>
 
 #include <vector>
 
 using namespace rvcara;
 
-namespace
+class BinaryMatrixTest : public testing::Test
 {
-    /** Writes a matrix file with an overridable header, so malformed cases can be built. */
-    juce::File writeMatrixFile (const juce::String& name,
-                                const std::vector<float>& values,
-                                int numRows,
-                                int numColumns,
-                                const char* magic = "RVCARAM1",
-                                std::uint32_t version = 1,
-                                std::uint32_t elementType = 0,
-                                int bytesToTruncate = 0)
-    {
-        const auto file = juce::File::getSpecialLocation (juce::File::tempDirectory)
-                              .getChildFile ("rvcara-tests")
-                              .getChildFile (name);
+protected:
+    void TearDown() override { directory.deleteRecursively(); }
 
-        file.getParentDirectory().createDirectory();
-        file.deleteFile();
+    juce::File write (const juce::String& name,
+                      int numRows,
+                      int numColumns,
+                      const char* magic = "RVCARAM1",
+                      std::uint32_t version = 1,
+                      std::uint32_t elementType = 0,
+                      int bytesToTruncate = 0) const
+    {
+        directory.createDirectory();
 
         juce::MemoryOutputStream stream;
         stream.write (magic, 8);
@@ -38,93 +34,75 @@ namespace
         if (payloadBytes > 0)
             stream.write (values.data(), static_cast<std::size_t> (payloadBytes));
 
+        const auto file = directory.getChildFile (name);
         file.replaceWithData (stream.getData(), stream.getDataSize());
         return file;
     }
-} // namespace
 
-TEST_CASE ("a well-formed matrix round-trips", "[matrix]")
-{
+    const juce::File directory = juce::File::getSpecialLocation (juce::File::tempDirectory)
+                                     .getChildFile ("rvcara-tests");
+
     const std::vector<float> values { 1.0f, 2.0f, 3.0f, 4.0f, 5.0f, 6.0f };
-    const auto file = writeMatrixFile ("valid.bin", values, 2, 3);
+};
 
-    const auto matrix = BinaryMatrix::load (file);
+TEST_F (BinaryMatrixTest, AWellFormedMatrixRoundTrips)
+{
+    const auto matrix = BinaryMatrix::load (write ("valid.bin", 2, 3));
 
-    REQUIRE (matrix.isValid());
-    CHECK (matrix.getError().isEmpty());
-    CHECK (matrix.getNumRows() == 2);
-    CHECK (matrix.getNumColumns() == 3);
-
-    // Row-major: the second row starts at the fourth value.
-    CHECK (matrix.getRow (0)[0] == 1.0f);
-    CHECK (matrix.getRow (0)[2] == 3.0f);
-    CHECK (matrix.getRow (1)[0] == 4.0f);
-    CHECK (matrix.getRow (1)[2] == 6.0f);
-
-    file.deleteFile();
+    ASSERT_TRUE (matrix.isValid()) << matrix.getError();
+    EXPECT_TRUE (matrix.getError().isEmpty());
+    EXPECT_EQ (matrix.getNumRows(), 2);
+    EXPECT_EQ (matrix.getNumColumns(), 3);
+    EXPECT_EQ (matrix.getRow (0)[0], 1.0f);
+    EXPECT_EQ (matrix.getRow (0)[2], 3.0f);
+    EXPECT_EQ (matrix.getRow (1)[0], 4.0f);
+    EXPECT_EQ (matrix.getRow (1)[2], 6.0f);
 }
 
-TEST_CASE ("malformed matrices are refused with a reason", "[matrix]")
+TEST_F (BinaryMatrixTest, AMissingFileIsRefused)
 {
-    const std::vector<float> values { 1.0f, 2.0f, 3.0f, 4.0f };
+    const auto matrix = BinaryMatrix::load (directory.getChildFile ("does-not-exist.bin"));
 
-    SECTION ("a missing file")
-    {
-        const auto matrix = BinaryMatrix::load (juce::File::getSpecialLocation (juce::File::tempDirectory)
-                                                    .getChildFile ("rvcara-does-not-exist.bin"));
-        CHECK_FALSE (matrix.isValid());
-        CHECK (matrix.getError().contains ("no such file"));
-    }
+    EXPECT_FALSE (matrix.isValid());
+    EXPECT_TRUE (matrix.getError().contains ("no such file"));
+}
 
-    SECTION ("wrong magic")
-    {
-        const auto file = writeMatrixFile ("badmagic.bin", values, 2, 2, "NOTARVCA");
-        const auto matrix = BinaryMatrix::load (file);
+TEST_F (BinaryMatrixTest, WrongMagicIsRefused)
+{
+    const auto matrix = BinaryMatrix::load (write ("magic.bin", 2, 2, "NOTARVCA"));
 
-        CHECK_FALSE (matrix.isValid());
-        CHECK (matrix.getError().contains ("not an RVCARA matrix"));
-        file.deleteFile();
-    }
+    EXPECT_FALSE (matrix.isValid());
+    EXPECT_TRUE (matrix.getError().contains ("not an RVCARA matrix"));
+}
 
-    SECTION ("a future format version")
-    {
-        const auto file = writeMatrixFile ("version.bin", values, 2, 2, "RVCARAM1", 99);
-        const auto matrix = BinaryMatrix::load (file);
+TEST_F (BinaryMatrixTest, AFutureFormatVersionIsRefused)
+{
+    const auto matrix = BinaryMatrix::load (write ("version.bin", 2, 2, "RVCARAM1", 99));
 
-        CHECK_FALSE (matrix.isValid());
-        CHECK (matrix.getError().contains ("format version"));
-        file.deleteFile();
-    }
+    EXPECT_FALSE (matrix.isValid());
+    EXPECT_TRUE (matrix.getError().contains ("format version"));
+}
 
-    SECTION ("an unsupported element type")
-    {
-        const auto file = writeMatrixFile ("dtype.bin", values, 2, 2, "RVCARAM1", 1, 7);
-        const auto matrix = BinaryMatrix::load (file);
+TEST_F (BinaryMatrixTest, AnUnsupportedElementTypeIsRefused)
+{
+    const auto matrix = BinaryMatrix::load (write ("type.bin", 2, 2, "RVCARAM1", 1, 7));
 
-        CHECK_FALSE (matrix.isValid());
-        CHECK (matrix.getError().contains ("element type"));
-        file.deleteFile();
-    }
+    EXPECT_FALSE (matrix.isValid());
+    EXPECT_TRUE (matrix.getError().contains ("element type"));
+}
 
-    SECTION ("a truncated payload")
-    {
-        // The case that matters in the field: an interrupted download or a partial copy
-        // of a 180 MB codebook. Without the length check this would read past the map.
-        const auto file = writeMatrixFile ("truncated.bin", values, 2, 2, "RVCARAM1", 1, 0, 4);
-        const auto matrix = BinaryMatrix::load (file);
+TEST_F (BinaryMatrixTest, ATruncatedPayloadIsRefused)
+{
+    const auto matrix = BinaryMatrix::load (write ("truncated.bin", 2, 3, "RVCARAM1", 1, 0, 4));
 
-        CHECK_FALSE (matrix.isValid());
-        CHECK (matrix.getError().contains ("truncated"));
-        file.deleteFile();
-    }
+    EXPECT_FALSE (matrix.isValid());
+    EXPECT_TRUE (matrix.getError().contains ("truncated"));
+}
 
-    SECTION ("empty dimensions")
-    {
-        const auto file = writeMatrixFile ("empty.bin", values, 0, 4);
-        const auto matrix = BinaryMatrix::load (file);
+TEST_F (BinaryMatrixTest, EmptyDimensionsAreRefused)
+{
+    const auto matrix = BinaryMatrix::load (write ("empty.bin", 0, 4));
 
-        CHECK_FALSE (matrix.isValid());
-        CHECK (matrix.getError().contains ("empty dimensions"));
-        file.deleteFile();
-    }
+    EXPECT_FALSE (matrix.isValid());
+    EXPECT_TRUE (matrix.getError().contains ("empty dimensions"));
 }

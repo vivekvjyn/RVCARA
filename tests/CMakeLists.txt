@@ -1,10 +1,3 @@
-# Unit tests for the conversion engine.
-#
-# These link rvcara_engine directly and never load a plugin, so they run in a second
-# and can be run from CI on a machine with no audio device and no voice model
-# installed. The tests that need a real model are guarded by the [model] tag and skip
-# themselves when RVCARA_MODEL_PATH is unset.
-
 add_executable(rvcara_tests
     BinaryMatrixTests.cpp
     ConversionSettingsTests.cpp
@@ -17,22 +10,17 @@ target_link_libraries(rvcara_tests
     PRIVATE
         rvcara_engine
         rvcara_warnings
-        Catch2::Catch2WithMain)
+        GTest::gtest_main)
 
 target_compile_definitions(rvcara_tests PRIVATE
     RVCARA_TEST_FIXTURE_DIR="${CMAKE_CURRENT_SOURCE_DIR}/fixtures")
 
-# ONNX Runtime is a shared library, and the test binary loads it at start-up even for
-# the tests that never touch a graph.
 rvcara_copy_onnxruntime_beside(rvcara_tests)
 
-# These three include nothing from libs/, so they can carry the strict tier — which is how
-# PitchConversions.h and ConversionSettings.h, header-only and framework-free, get judged by
-# it at all. The other three reach JUCE through BinaryMatrix, MelSpectrogram and juce::File.
 rvcara_apply_strict_warnings(
     ConversionSettingsTests.cpp
     PitchConversionsTests.cpp
     SincResamplerTests.cpp)
 
-include(Catch)
-catch_discover_tests(rvcara_tests)
+include(GoogleTest)
+gtest_discover_tests(rvcara_tests)

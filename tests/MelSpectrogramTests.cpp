@@ -1,14 +1,14 @@
-#include "MelSpectrogram.h"
-#include "BinaryMatrix.h"
+#include "dsp/MelSpectrogram.h"
+#include "common/BinaryMatrix.h"
 
-#include <catch2/catch_approx.hpp>
-#include <catch2/catch_test_macros.hpp>
+#include <gtest/gtest.h>
 
 #include <cmath>
+#include <limits>
+#include <numbers>
 #include <vector>
 
 using namespace rvcara;
-using Catch::Approx;
 
 namespace
 {
@@ -19,8 +19,6 @@ namespace
 
     MelSpectrogram::Configuration getReferenceConfiguration()
     {
-        // The values the reference RMVPE front end uses, mirrored from the exporter's
-        // pitch_estimator.py.
         MelSpectrogram::Configuration configuration;
         configuration.fftSize = 1024;
         configuration.windowSize = 1024;
@@ -31,80 +29,68 @@ namespace
         configuration.isCentred = true;
         return configuration;
     }
-
-    std::vector<float> loadFilterBank()
-    {
-        const auto matrix = BinaryMatrix::load (getFixtureDirectory().getChildFile ("mel_filter_bank.bin"));
-        REQUIRE (matrix.isValid());
-
-        return { matrix.getData(),
-                 matrix.getData() + static_cast<std::size_t> (matrix.getNumRows()) * static_cast<std::size_t> (matrix.getNumColumns()) };
-    }
 } // namespace
 
-TEST_CASE ("the frame count follows the centred-framing rule", "[mel]")
+class MelSpectrogramTest : public testing::Test
 {
-    const MelSpectrogram spectrogram { getReferenceConfiguration(), loadFilterBank() };
+protected:
+    void SetUp() override
+    {
+        const auto bank = BinaryMatrix::load (getFixtureDirectory().getChildFile ("mel_filter_bank.bin"));
+        ASSERT_TRUE (bank.isValid()) << bank.getError();
 
-    // Centred framing gives one frame per hop plus one, independent of the transform
-    // size. Getting this wrong by one frame misaligns the pitch track against the
-    // content features for the whole region.
-    CHECK (spectrogram.getNumFrames (16000) == 101);
-    CHECK (spectrogram.getNumFrames (160) == 2);
-    CHECK (spectrogram.getNumFrames (32099) == 201);
-    CHECK (spectrogram.getNumFrames (0) == 0);
+        const auto numValues = static_cast<std::size_t> (bank.getNumRows())
+                             * static_cast<std::size_t> (bank.getNumColumns());
+
+        spectrogram = std::make_unique<MelSpectrogram> (
+            configuration, std::vector<float> { bank.getData(), bank.getData() + numValues });
+    }
+
+    MelSpectrogram::Configuration configuration { getReferenceConfiguration() };
+    std::unique_ptr<MelSpectrogram> spectrogram;
+};
+
+TEST_F (MelSpectrogramTest, TheFrameCountFollowsTheCentredFramingRule)
+{
+    EXPECT_EQ (spectrogram->getNumFrames (16000), 101);
+    EXPECT_EQ (spectrogram->getNumFrames (160), 2);
+    EXPECT_EQ (spectrogram->getNumFrames (32099), 201);
+    EXPECT_EQ (spectrogram->getNumFrames (0), 0);
 }
 
-TEST_CASE ("a signal shorter than the reflection is refused rather than guessed at", "[mel]")
+TEST_F (MelSpectrogramTest, ASignalShorterThanTheReflectionIsRefused)
 {
-    const MelSpectrogram spectrogram { getReferenceConfiguration(), loadFilterBank() };
-
-    std::vector<float> tiny (100, 0.0f);
+    const std::vector<float> tiny (100, 0.0f);
     std::vector<float> destination;
 
-    CHECK (spectrogram.process (tiny.data(), static_cast<int> (tiny.size()), destination) == 0);
+    EXPECT_EQ (spectrogram->process (tiny.data(), static_cast<int> (tiny.size()), destination), 0);
 }
 
-TEST_CASE ("the spectrogram matches the reference implementation", "[mel]")
+TEST_F (MelSpectrogramTest, TheSpectrogramMatchesTheReferenceImplementation)
 {
-    // The fixture was produced by the exporter's fixtures.py using NumPy, SciPy and
-    // librosa's filter bank — the same code path the exported model was validated
-    // against. This is the test that would catch a symmetric Hann window, power instead
-    // of magnitude, a missing reflection, or a transposed filter bank; all four produce
-    // a plausible spectrogram of the wrong thing.
-    const auto fixtures = getFixtureDirectory();
+    const auto source = BinaryMatrix::load (getFixtureDirectory().getChildFile ("test_signal.bin"));
+    const auto expected = BinaryMatrix::load (getFixtureDirectory().getChildFile ("expected_log_mel.bin"));
 
-    const auto signal = BinaryMatrix::load (fixtures.getChildFile ("test_signal.bin"));
-    const auto expected = BinaryMatrix::load (fixtures.getChildFile ("expected_log_mel.bin"));
-
-    REQUIRE (signal.isValid());
-    REQUIRE (expected.isValid());
-
-    const MelSpectrogram spectrogram { getReferenceConfiguration(), loadFilterBank() };
+    ASSERT_TRUE (source.isValid()) << source.getError();
+    ASSERT_TRUE (expected.isValid()) << expected.getError();
 
     std::vector<float> computed;
-    const auto numFrames = spectrogram.process (signal.getData(), signal.getNumColumns(), computed);
+    const auto numFrames = spectrogram->process (source.getData(), source.getNumColumns(), computed);
 
-    REQUIRE (numFrames == expected.getNumColumns());
-    REQUIRE (computed.size() == static_cast<std::size_t> (expected.getNumRows()) * static_cast<std::size_t> (numFrames));
+    ASSERT_EQ (numFrames, expected.getNumColumns());
+    ASSERT_EQ (computed.size(),
+               static_cast<std::size_t> (expected.getNumRows()) * static_cast<std::size_t> (numFrames));
 
-    // Tolerance covers only the difference between a float32 FFT and NumPy's float64
-    // one; the values themselves are natural logarithms of order 1 to 10.
     auto worstDifference = 0.0f;
 
     for (std::size_t index = 0; index < computed.size(); ++index)
         worstDifference = std::max (worstDifference, std::abs (computed[index] - expected.getData()[index]));
 
-    CHECK (worstDifference < 1.0e-3f);
+    EXPECT_LT (worstDifference, 1.0e-3f);
 }
 
-TEST_CASE ("a pure tone lands in the expected mel bin", "[mel]")
+TEST_F (MelSpectrogramTest, APureToneLandsInTheExpectedMelBin)
 {
-    // A sanity check that survives a filter bank regenerated with different parameters,
-    // which the golden test above would simply fail without saying why.
-    const auto configuration = getReferenceConfiguration();
-    const MelSpectrogram spectrogram { configuration, loadFilterBank() };
-
     constexpr auto sampleRate = 16000.0;
     constexpr auto toneHz = 1000.0;
     constexpr auto numSamples = 8000;
@@ -113,14 +99,13 @@ TEST_CASE ("a pure tone lands in the expected mel bin", "[mel]")
 
     for (int sampleIndex = 0; sampleIndex < numSamples; ++sampleIndex)
         tone[static_cast<std::size_t> (sampleIndex)] =
-            static_cast<float> (std::sin (2.0 * juce::MathConstants<double>::pi * toneHz
+            static_cast<float> (std::sin (2.0 * std::numbers::pi * toneHz
                                           * static_cast<double> (sampleIndex) / sampleRate));
 
     std::vector<float> computed;
-    const auto numFrames = spectrogram.process (tone.data(), numSamples, computed);
-    REQUIRE (numFrames > 10);
+    const auto numFrames = spectrogram->process (tone.data(), numSamples, computed);
+    ASSERT_GT (numFrames, 10);
 
-    // Read a frame from the middle, where the window is fully inside the tone.
     const auto frameIndex = numFrames / 2;
 
     auto peakMelBin = 0;
@@ -138,9 +123,6 @@ TEST_CASE ("a pure tone lands in the expected mel bin", "[mel]")
         }
     }
 
-    // On the HTK mel scale, 2595 * log10(1 + f / 700), the span 30 Hz to 8 kHz places
-    // 1 kHz at 34.1% of the range, so bin 43 or 44 of 128. A linear-frequency bank would
-    // put it near bin 16 and a transposed one nowhere in particular.
-    CHECK (peakMelBin >= 41);
-    CHECK (peakMelBin <= 46);
+    EXPECT_GE (peakMelBin, 41);
+    EXPECT_LE (peakMelBin, 46);
 }

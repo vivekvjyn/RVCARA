@@ -220,11 +220,11 @@ function(rvcara_copy_onnxruntime_beside target)
         INSTALL_RPATH "${loaderRelativePath}")
 
     if(WIN32)
-        add_custom_command(TARGET ${target} POST_BUILD
+        add_custom_command(TARGET ${target} PRE_LINK
             COMMAND ${CMAKE_COMMAND} -E copy_if_different
                     "${onnxruntimeLibrary}" "$<TARGET_FILE_DIR:${target}>" VERBATIM)
     else()
-        add_custom_command(TARGET ${target} POST_BUILD
+        add_custom_command(TARGET ${target} PRE_LINK
             COMMAND ${CMAKE_COMMAND}
                     "-DlibraryDir=${RVCARA_ONNXRUNTIME_LIBRARY_DIR}"
                     "-Ddestination=$<TARGET_FILE_DIR:${target}>"
@@ -236,7 +236,7 @@ endfunction()
 # Submodules
 # ==================================================================================
 
-foreach(submodule JUCE ARA_SDK hnswlib)
+foreach(submodule JUCE ARA_SDK googletest hnswlib)
     if(NOT EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/libs/${submodule}/README.md"
        AND NOT EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/libs/${submodule}/CMakeLists.txt")
         message(FATAL_ERROR "libs/${submodule} is empty. See the build steps in README.md.")
@@ -332,18 +332,18 @@ endfunction()
 # ==================================================================================
 
 set(RVCARA_ENGINE_SOURCES
-    src/BinaryMatrix.cpp
-    src/ConversionEngine.cpp
-    src/FeatureRetriever.cpp
-    src/MelSpectrogram.cpp
-    src/ModelManifest.cpp
-    src/OnnxSession.cpp
-    src/PitchEstimator.cpp
-    src/SincResampler.cpp
-    src/VoiceLoader.cpp
-    src/VoiceModel.cpp
-    src/VoiceModelLibrary.cpp
-    src/ZeroPhaseFilter.cpp)
+    src/common/BinaryMatrix.cpp
+    src/dsp/MelSpectrogram.cpp
+    src/dsp/SincResampler.cpp
+    src/dsp/ZeroPhaseFilter.cpp
+    src/model/ConversionEngine.cpp
+    src/model/FeatureRetriever.cpp
+    src/model/ModelManifest.cpp
+    src/model/OnnxSession.cpp
+    src/model/PitchEstimator.cpp
+    src/model/VoiceLoader.cpp
+    src/model/VoiceModel.cpp
+    src/model/VoiceModelLibrary.cpp)
 
 add_library(rvcara_engine STATIC ${RVCARA_ENGINE_SOURCES})
 target_include_directories(rvcara_engine PUBLIC src)
@@ -379,7 +379,7 @@ target_compile_definitions(rvcara_engine PRIVATE
 # hnswlib's headers trip -Wall on unused parameters and sign comparisons in ways that are
 # not ours to fix, and they are included by one translation unit.
 if(NOT MSVC)
-    set_property(SOURCE src/FeatureRetriever.cpp APPEND PROPERTY COMPILE_OPTIONS
+    set_property(SOURCE src/model/FeatureRetriever.cpp APPEND PROPERTY COMPILE_OPTIONS
         -Wno-unused-parameter -Wno-sign-compare)
 endif()
 
@@ -400,6 +400,12 @@ endif()
 # implement would have hosts querying for content readers that do not exist.
 # ==================================================================================
 
+set(RVCARA_FORMATS VST3 LV2)
+
+if(APPLE)
+    list(APPEND RVCARA_FORMATS AU)
+endif()
+
 juce_add_plugin(RVCARA
     PLUGIN_MANUFACTURER_CODE Pinn
     PLUGIN_CODE Rvca
@@ -410,7 +416,8 @@ juce_add_plugin(RVCARA
     PRODUCT_NAME "RVCARA"
     DESCRIPTION "Retrieval-based voice conversion as an ARA plug-in"
 
-    FORMATS AU VST3 Standalone
+    FORMATS ${RVCARA_FORMATS}
+    LV2URI "https://github.com/vivekvjyn/RVCARA"
     IS_ARA_EFFECT TRUE
     ARA_FACTORY_ID "\"com.pitchinnovations.rvcara.arafactory.0.1.0\""
     ARA_DOCUMENT_ARCHIVE_ID "\"com.pitchinnovations.rvcara.aradocumentarchive.1\""
@@ -424,14 +431,14 @@ juce_add_plugin(RVCARA
     VST3_AUTO_MANIFEST FALSE)
 
 set(RVCARA_PLUGIN_SOURCES
-    src/ConversionModification.cpp
-    src/DocumentController.cpp
-    src/InsertConverter.cpp
-    src/PanelLookAndFeel.cpp
-    src/PitchCurveView.cpp
-    src/PlaybackRenderer.cpp
-    src/PluginEditor.cpp
-    src/PluginProcessor.cpp)
+    src/Editor.cpp
+    src/Processor.cpp
+    src/ara/ConversionModification.cpp
+    src/ara/DocumentController.cpp
+    src/ara/PlaybackRenderer.cpp
+    src/insert/InsertConverter.cpp
+    src/ui/PanelLookAndFeel.cpp
+    src/ui/PitchCurveView.cpp)
 
 target_sources(RVCARA PRIVATE ${RVCARA_PLUGIN_SOURCES})
 target_include_directories(RVCARA PRIVATE src)
@@ -458,17 +465,30 @@ target_link_libraries(RVCARA
 # strict tier. MelSpectrogram cannot join them while it uses juce::dsp::FFT, and the pipeline
 # and plug-in files report errors as juce::String.
 rvcara_apply_strict_warnings(
-    src/SincResampler.cpp
-    src/ZeroPhaseFilter.cpp)
+    src/dsp/SincResampler.cpp
+    src/dsp/ZeroPhaseFilter.cpp)
 
-foreach(format Standalone VST3 AU)
+foreach(format ${RVCARA_FORMATS})
     if(TARGET RVCARA_${format})
         rvcara_copy_onnxruntime_beside(RVCARA_${format})
     endif()
 endforeach()
 
+find_package(Doxygen)
+
+if(DOXYGEN_FOUND)
+    add_custom_target(rvcara_docs
+        COMMAND ${DOXYGEN_EXECUTABLE} Doxyfile
+        WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}/docs"
+        COMMENT "Generating API documentation"
+        VERBATIM)
+endif()
+
 if(RVCARA_BUILD_TESTS)
     enable_testing()
-    add_subdirectory(libs/Catch2)
+    set(BUILD_GMOCK OFF CACHE BOOL "" FORCE)
+    set(INSTALL_GTEST OFF CACHE BOOL "" FORCE)
+    set(gtest_force_shared_crt ON CACHE BOOL "" FORCE)
+    add_subdirectory(libs/googletest)
     add_subdirectory(tests)
 endif()
