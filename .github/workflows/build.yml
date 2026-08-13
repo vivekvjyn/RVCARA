@@ -1,4 +1,4 @@
-name: CI
+name: Build
 
 on:
   push:
@@ -20,10 +20,13 @@ jobs:
         include:
           - name: Linux
             os: ubuntu-latest
+            formats: VST3, LV2
           - name: macOS
             os: macos-latest
+            formats: VST3, LV2, AU
           - name: Windows
             os: windows-latest
+            formats: VST3, LV2
 
     steps:
       - uses: actions/checkout@v4
@@ -65,18 +68,28 @@ jobs:
         if: runner.os != 'Linux'
         uses: seanmiddleditch/gha-setup-ninja@v5
 
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
       - name: Configure
         shell: bash
         run: |
+          workspace="$(pwd -W 2>/dev/null || pwd)"
+
           if [ -e build/onnxruntime-install/lib ]; then
-            cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=RelWithDebInfo \
-                  -DRVCARA_ONNXRUNTIME_ROOT="$PWD/build/onnxruntime-install"
+            cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release \
+                  -DRVCARA_ONNXRUNTIME_ROOT="$workspace/build/onnxruntime-install"
           else
-            cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=RelWithDebInfo
+            cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release
           fi
 
-      - name: Build
+      - name: Build ${{ matrix.formats }}
         run: cmake --build build --parallel
 
       - name: Test
         run: ctest --test-dir build --output-on-failure
+
+      - name: List what was built
+        shell: bash
+        run: find build/RVCARA_artefacts -maxdepth 3 -name "*.vst3" -o -maxdepth 3 -name "*.lv2" -o -maxdepth 3 -name "*.component"
