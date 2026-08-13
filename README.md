@@ -35,7 +35,7 @@ per-region settings and session persistence all work properly. Same arrangement 
 3. On the next pass the converted voice plays back in place, sample aligned, with no added
    latency and no seams.
 
-The only cost is that the first pass is dry. Changing a control re-converts immediately from
+The only cost is that the first pass is dry. Changing a parameter re-converts immediately from
 the existing capture, so you do not have to replay to audition a change.
 
 Neither mode is usable for live monitoring, and no amount of engineering makes this class of
@@ -139,15 +139,25 @@ without a plug-in release. The ONNX tensor names are read from the manifest too,
 third-party RVC export whose tensors are called `phone` and `pitchf` can be described by
 editing JSON rather than source.
 
-## Controls
+## The panel
 
-| Control | RVC name | What it does |
+There are no knobs. The panel is a header, a display and a footer: which voice is loaded, the
+melody the model followed over the loudness it produced, and what the conversion is doing. The
+voice loads itself and the take converts itself, so a control would be one more thing to set
+that the plug-in has already decided.
+
+The parameters below still exist — the host can automate every one, and reaches them through
+the generic parameter view it provides for any plug-in. They are simply not on the panel,
+because tuning them is not what using this is like.
+
+| Parameter | RVC name | What it does |
 | --- | --- | --- |
 | Pitch | `f0_up_key` | Transposes the estimated melody, in semitones |
 | Timbre | `index_rate` | How far to move toward the trained singer's timbre |
 | Consonants | `protect` | Keeps unvoiced frames nearer the source features |
 | Dynamics | `rms_mix_rate` | Restores the source's loudness contour |
 | Variation | — | Seeds the vocoder's latent; changes the performance, not the notes |
+| Bypass | — | On the panel, next to the voice |
 
 Consonant protection is inert for models whose pitch track is gap-filled, which is all of
 them — the reference pipeline interpolates across unvoiced frames, so nothing is left below
@@ -156,19 +166,37 @@ them — the reference pipeline interpolates across unvoiced frames, so nothing 
 
 ## Performance
 
-Measured on 16 cores, converting 37 seconds of vocal:
+Where the time actually goes, measured stage by stage on a Ryzen 7 5800HS (8 cores, 16
+hardware threads) converting 37 seconds of vocal in 21.1 s — **0.57× real time**:
 
-| Stage | Time | Relative to real time |
+| Stage | Time | Share |
 | --- | --- | --- |
-| High-pass | 0.01 s | 3200× |
-| Pitch estimator | 1.14 s | 32× |
-| Content encoder | 3.35 s | 11× |
-| Retrieval (approximate) | ~0.05 s | ~700× |
-| Vocoder | 16.8 s | 2.2× |
+| Vocoder | 15.05 s | **71.3%** |
+| Content encoder | 3.31 s | 15.7% |
+| Pitch estimator | 1.36 s | 6.4% |
+| Resample out | 0.48 s | 2.3% |
+| Retrieval (approximate) | 0.46 s | 2.2% |
+| Resample in | 0.44 s | 2.1% |
+| High-pass, padding, frame expansion | 0.02 s | 0.1% |
 
-About 1.5× real time overall, dominated by the vocoder's 400× upsampling to 40 kHz. A
-three-minute vocal converts in roughly two minutes on a background thread while the
-previous render keeps playing.
+The vocoder's 400× upsampling to 40 kHz is the whole cost. Nothing outside it is worth
+optimising: making the resamplers, the filter and the retrieval search *infinitely* fast
+would buy 7%.
+
+**One optimisation was worth taking.** ONNX Runtime's default intra-op thread count is the
+number of hardware threads; pinning it to the number of *physical* cores is 8% faster
+end to end — 6.1 s against 5.6 s on the same 8.5-second phrase — because the matrix kernels
+already saturate each core's vector units, so a second thread on the same core only adds
+contention. Setting denormals-as-zero made no measurable difference; there are none to flush.
+
+Beyond that, the remaining levers all cost something other than time: int8 dynamic
+quantisation of the vocoder (which belongs in the exporter, and risks audible artefacts in a
+generative vocoder), a smaller vocoder, or caching the content features so that a re-render
+after a parameter change skips the encoder — worth at most the encoder's 16%, and only on a
+re-render.
+
+A warm voice load is 2 s. The first ever load of a voice is around 45 s, because the retrieval
+graph is built and then cached beside the model.
 
 Retrieval uses [hnswlib](https://github.com/nmslib/hnswlib) rather than exact search. The
 codebook for the reference voice holds 61,893 768-dimensional vectors; exact search is

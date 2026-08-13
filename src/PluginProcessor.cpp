@@ -144,24 +144,6 @@ ConversionSettings PluginProcessor::getSettingsFromParameters() const
     return settings;
 }
 
-void PluginProcessor::setParametersFromSettings (const ConversionSettings& settings)
-{
-    const juce::ScopedValueSetter<bool> suppress { isSynchronisingParameters, true };
-
-    const auto assign = [this] (const char* parameterId, float value)
-    {
-        if (auto* parameter = parameters.getParameter (parameterId))
-            parameter->setValueNotifyingHost (parameter->convertTo0to1 (value));
-    };
-
-    assign (ParameterId::pitchShiftSemitones, settings.pitchShiftSemitones);
-    assign (ParameterId::retrievalRatio, settings.retrievalRatio);
-    assign (ParameterId::consonantProtection, settings.consonantProtection);
-    assign (ParameterId::envelopeFollowRatio, settings.envelopeFollowRatio);
-    assign (ParameterId::latentNoiseSeed, static_cast<float> (settings.latentNoiseSeed));
-    assign (ParameterId::isBypassed, settings.isBypassed ? 1.0f : 0.0f);
-}
-
 std::vector<ConversionModification*> PluginProcessor::getEditableModifications() const
 {
     auto* documentController = getConversionDocumentController();
@@ -205,9 +187,6 @@ std::vector<ConversionModification*> PluginProcessor::getEditableModifications()
 
 void PluginProcessor::parameterChanged (const juce::String&, float)
 {
-    if (isSynchronisingParameters)
-        return;
-
     const auto settings = getSettingsFromParameters();
 
     if (auto* documentController = getConversionDocumentController())

@@ -427,6 +427,7 @@ set(RVCARA_PLUGIN_SOURCES
     src/ConversionModification.cpp
     src/DocumentController.cpp
     src/InsertConverter.cpp
+    src/PanelLookAndFeel.cpp
     src/PitchCurveView.cpp
     src/PlaybackRenderer.cpp
     src/PluginEditor.cpp

@@ -64,8 +64,9 @@ public:
     /** Loads a graph.
 
         @param file        The `.onnx` file.
-        @param numThreads  Intra-operator threads; zero lets ONNX Runtime choose,
-                           which is one per physical core.
+        @param numThreads  Intra-operator threads; zero means one per physical core, which is
+                           chosen here rather than left to ONNX Runtime — its own default
+                           counts hardware threads, and measurably loses on this pipeline.
         @returns           True on success; on failure see getError().
     */
     bool load (const juce::File& file, int numThreads = 0);

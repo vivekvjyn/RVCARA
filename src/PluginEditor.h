@@ -3,6 +3,7 @@
 #include "PluginProcessor.h"
 
 #include "DocumentController.h"
+#include "PanelLookAndFeel.h"
 #include "PitchCurveView.h"
 
 #include <juce_gui_basics/juce_gui_basics.h>
@@ -13,16 +14,19 @@
 namespace rvcara
 {
 
-/** The plugin's interface.
+/** The plug-in's interface: a header, a display, and a footer.
 
-    Laid out around the one question the user is actually asking — "does this sound like
-    the voice I chose, singing what I sang?" — so the pitch curve gets the space and the
-    controls sit beneath it.
+    There are no knobs. The conversion has parameters and the host can automate every one of
+    them, but putting them on the panel would misrepresent what using this plug-in is like:
+    the voice loads itself, the take converts itself, and the one question the user actually
+    has — "did the model hear the notes I sang?" — is answered by the pitch curve, not by a
+    control. So the curve gets the whole middle of the panel, the header says which voice is
+    loaded, and the footer says what the conversion is doing.
 
-    The editor is a view onto the ARA model, not a store of its own. It polls rather than
-    subscribing to every model change because a render publishes from a worker thread and
-    several plugin instances may share a document controller; a timer at interface rate is
-    both simpler and sufficient for progress, state and staleness.
+    The editor is a view onto the model, never a store of its own. It polls on a timer rather
+    than subscribing to every change, because renders publish from a worker thread and several
+    instances may share one document controller; at interface rate, polling is both simpler
+    and indistinguishable from the alternative.
 */
 class PluginEditor final : public juce::AudioProcessorEditor,
                            public juce::AudioProcessorEditorARAExtension,
@@ -43,64 +47,68 @@ private:
     void timerCallback() override;
     void conversionStateChanged() override;
 
-    /** Repopulates the voice list from the library, preserving the current selection. */
-    void refreshVoiceList();
-
-    /** Pushes the combo box's selection into the ARA model. */
-    void applySelectedVoice();
-
-    /** Reads state back out of the model into the controls and the curve. */
-    void refreshFromModel();
-
-    /** The insert-mode half of refreshFromModel, for hosts with no ARA. */
-    void refreshFromInsertConverter();
-
-    /** @returns The modification the interface is currently showing, or nullptr. */
-    [[nodiscard]] ConversionModification* getFocusedModification() const;
-
-    /** One labelled control. */
-    struct LabelledSlider
+    /** What the panel is currently reporting: one line of status, and how to colour it. */
+    struct Report
     {
-        juce::Label label;
-        juce::Slider slider { juce::Slider::RotaryHorizontalVerticalDrag, juce::Slider::TextBoxBelow };
-        std::unique_ptr<juce::AudioProcessorValueTreeState::SliderAttachment> attachment;
+        juce::String status;                  ///< Two or three words for the footer
+        juce::String detail;                  ///< Right-aligned context, or empty
+        juce::String caption;                 ///< Longer text drawn over the display, or empty
+        float progress { 0.0f };              ///< Drives the footer's progress rule
+        bool isBusy { false };                ///< Converting or queued
+        bool isAlert { false };               ///< Failed
     };
 
-    /** Builds and attaches one control. */
-    void addSlider (LabelledSlider& control, const char* parameterId, const juce::String& name);
+    /** @returns What to show, read from whichever of the two paths is in use. */
+    [[nodiscard]] Report describeState() const;
+
+    /** The ARA half of describeState. */
+    [[nodiscard]] Report describeModification() const;
+
+    /** The insert-mode half of describeState, for hosts with no ARA. */
+    [[nodiscard]] Report describeCapture() const;
+
+    /** Reads state out of the model and into the panel. */
+    void refresh();
+
+    /** Pops the list of installed voices, and loads the one chosen. */
+    void showVoiceMenu();
+
+    /** Requests a voice by name through whichever path is in use. */
+    void applyVoice (const juce::String& name);
+
+    /** @returns The modification the interface is showing, or nullptr. */
+    [[nodiscard]] ConversionModification* getFocusedModification() const;
+
+    /** @returns The loaded voice's name and sample rate, for the header. */
+    [[nodiscard]] juce::String describeLoadedVoice() const;
+
+    void paintHeader (juce::Graphics& graphics, juce::Rectangle<int> bounds) const;
+    void paintFooter (juce::Graphics& graphics, juce::Rectangle<int> bounds) const;
 
     PluginProcessor& processorReference;
 
-    juce::Label titleLabel;
-    juce::Label statusLabel;
+    PanelLookAndFeel lookAndFeel;
 
-    juce::ComboBox voiceSelector;
-    juce::Label voiceLabel;
-    juce::TextButton rescanButton { "Rescan" };
+    /** The voice name, drawn as a field that opens a menu — the preset-field idiom, rather
+        than a combo box, because there is normally exactly one voice and a box implies a
+        decision the user does not have to make.
+    */
+    juce::TextButton voiceButton;
 
-    PitchCurveView pitchCurveView;
+    juce::TextButton bypassButton { "Bypass" };
+    std::unique_ptr<juce::AudioProcessorValueTreeState::ButtonAttachment> bypassAttachment;
 
-    LabelledSlider pitchControl;
-    LabelledSlider timbreControl;
-    LabelledSlider consonantControl;
-    LabelledSlider dynamicsControl;
-    LabelledSlider variationControl;
-
-    /** Insert mode only: converts what has been captured, without waiting for the transport
-        to stop. In ARA mode the host supplies the audio directly, so there is nothing to
-        capture and the button is hidden.
+    /** Insert mode only: converts what has been captured without waiting for the transport to
+        stop, and throws the capture away. Hidden under ARA, where the host hands over the
+        audio and there is nothing to capture.
     */
     juce::TextButton convertButton { "Convert" };
     juce::TextButton clearCaptureButton { "Clear" };
 
-    juce::ToggleButton bypassButton { "Bypass" };
-    std::unique_ptr<juce::AudioProcessorValueTreeState::ButtonAttachment> bypassAttachment;
+    PitchCurveView pitchCurveView;
 
-    /** The voices offered, parallel to the combo box's items. */
-    std::vector<juce::String> voiceNames;
-
-    /** Set when the editor is writing to the controls, to stop the write echoing back. */
-    bool isRefreshing { false };
+    /** The report the last refresh produced, so paint() and the display agree. */
+    Report report;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (PluginEditor)
 };

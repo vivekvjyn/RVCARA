@@ -7,47 +7,51 @@ namespace rvcara
 
 namespace
 {
-    constexpr int defaultWidth = 640;
-    constexpr int defaultHeight = 420;
-    constexpr int minimumWidth = 520;
-    constexpr int minimumHeight = 360;
+    using Palette = PanelLookAndFeel::Palette;
+    using TypeScale = PanelLookAndFeel::TypeScale;
+    using Metrics = PanelLookAndFeel::Metrics;
 
-    /** Interface refresh rate. Fast enough for a progress bar to look live, slow enough
-        that polling several modifications costs nothing.
+    constexpr int defaultWidth = 620;
+    constexpr int defaultHeight = 340;
+    constexpr int minimumWidth = 460;
+    constexpr int minimumHeight = 252;
+    constexpr int maximumWidth = 1240;
+    constexpr int maximumHeight = 680;
+
+    /** Interface refresh rate. Fast enough that a progress rule looks live, slow enough that
+        polling several modifications costs nothing.
     */
     constexpr int refreshHz = 15;
 
-    const juce::Colour panelColour { 0xff1a1d22 };
-    const juce::Colour textColour { 0xffd7dbe0 };
-    const juce::Colour dimTextColour { 0xff7d8590 };
-    const juce::Colour accentColour { 0xff5fc9a0 };
+    constexpr int buttonWidth = 74;
+    constexpr int bypassWidth = 68;
+    constexpr int voiceButtonWidth = 190;
 
-    /** What to say when the machine has no voice on it at all. Names the directory rather
-        than describing it, because that is what the user has to go and put a file in.
+    /** Menu item ids. Voices are numbered from one; the commands sit above any plausible
+        number of installed voices so the two ranges cannot collide.
     */
-    juce::String describeMissingVoice()
+    constexpr int rescanItemId = 10000;
+
+    /** Separates a name from its qualifiers.
+
+        Spaces rather than a punctuation mark: a middle dot has to survive the source
+        encoding, the host's font and toUpperCase() before it reaches the panel, and it earns
+        nothing that spacing does not.
+    */
+    const char* qualifierGap = "   ";
+
+    /** @returns Something like "female1   40 kHz". */
+    juce::String describeEntry (const VoiceModelLibrary::Entry& entry)
     {
-        return "No voice installed.\nPut an exported voice in\n"
-             + VoiceModelLibrary::getUserModelDirectory().getFullPathName();
-    }
+        auto description = entry.name;
 
-    /** Describes what a modification is doing, for the status line. */
-    juce::String describeState (const ConversionModification& modification)
-    {
-        using State = ConversionModification::State;
+        if (entry.modelSampleRate > 0)
+            description += qualifierGap + juce::String (entry.modelSampleRate / 1000) + " kHz";
 
-        switch (modification.getState())
-        {
-            case State::idle:      return modification.getSettings().isBypassed ? "Bypassed" : "Ready";
-            case State::queued:    return "Queued";
-            case State::rendering: return "Converting "
-                                        + juce::String (juce::roundToInt (modification.getProgress() * 100.0f))
-                                        + "%";
-            case State::ready:     return modification.isConversionCurrent() ? "Converted" : "Converted (out of date)";
-            case State::failed:    return "Failed: " + modification.getError();
-        }
+        if (! entry.hasRetrieval)
+            description += qualifierGap + juce::String ("no timbre index");
 
-        return {};
+        return description;
     }
 } // namespace
 
@@ -56,32 +60,16 @@ PluginEditor::PluginEditor (PluginProcessor& processorToUse)
       juce::AudioProcessorEditorARAExtension (&processorToUse),
       processorReference (processorToUse)
 {
-    titleLabel.setText ("RVCARA", juce::dontSendNotification);
-    titleLabel.setFont (juce::FontOptions { 20.0f, juce::Font::bold });
-    titleLabel.setColour (juce::Label::textColourId, textColour);
-    addAndMakeVisible (titleLabel);
+    setLookAndFeel (&lookAndFeel);
 
-    statusLabel.setFont (juce::FontOptions { 12.0f });
-    statusLabel.setColour (juce::Label::textColourId, dimTextColour);
-    statusLabel.setJustificationType (juce::Justification::centredRight);
-    addAndMakeVisible (statusLabel);
+    voiceButton.onClick = [this] { showVoiceMenu(); };
+    voiceButton.setTriggeredOnMouseDown (true);
+    addAndMakeVisible (voiceButton);
 
-    voiceLabel.setText ("Voice", juce::dontSendNotification);
-    voiceLabel.setFont (juce::FontOptions { 12.0f });
-    voiceLabel.setColour (juce::Label::textColourId, dimTextColour);
-    addAndMakeVisible (voiceLabel);
-
-    voiceSelector.setTextWhenNoChoicesAvailable ("No voices installed");
-    voiceSelector.setTextWhenNothingSelected ("Choose a voice");
-    voiceSelector.onChange = [this] { applySelectedVoice(); };
-    addAndMakeVisible (voiceSelector);
-
-    rescanButton.onClick = [this]
-    {
-        processorReference.getVoiceLoader().getLibrary().rescan();
-        refreshVoiceList();
-    };
-    addAndMakeVisible (rescanButton);
+    bypassButton.setClickingTogglesState (true);
+    addAndMakeVisible (bypassButton);
+    bypassAttachment = std::make_unique<juce::AudioProcessorValueTreeState::ButtonAttachment> (
+        processorReference.getParameters(), PluginProcessor::ParameterId::isBypassed, bypassButton);
 
     convertButton.onClick = [this] { processorReference.getInsertConverter().requestConversion(); };
     addChildComponent (convertButton);
@@ -91,25 +79,19 @@ PluginEditor::PluginEditor (PluginProcessor& processorToUse)
 
     addAndMakeVisible (pitchCurveView);
 
-    addSlider (pitchControl, PluginProcessor::ParameterId::pitchShiftSemitones, "Pitch");
-    addSlider (timbreControl, PluginProcessor::ParameterId::retrievalRatio, "Timbre");
-    addSlider (consonantControl, PluginProcessor::ParameterId::consonantProtection, "Consonants");
-    addSlider (dynamicsControl, PluginProcessor::ParameterId::envelopeFollowRatio, "Dynamics");
-    addSlider (variationControl, PluginProcessor::ParameterId::latentNoiseSeed, "Variation");
-
-    bypassButton.setColour (juce::ToggleButton::textColourId, dimTextColour);
-    bypassButton.setColour (juce::ToggleButton::tickColourId, accentColour);
-    addAndMakeVisible (bypassButton);
-    bypassAttachment = std::make_unique<juce::AudioProcessorValueTreeState::ButtonAttachment> (
-        processorReference.getParameters(), PluginProcessor::ParameterId::isBypassed, bypassButton);
-
     if (auto* documentController = processorReference.getConversionDocumentController())
         documentController->addListener (this);
 
-    refreshVoiceList();
-    refreshFromModel();
+    refresh();
 
-    setResizeLimits (minimumWidth, minimumHeight, 1600, 1200);
+    // Resizable, but only in proportion, and only within a factor of two. A panel this sparse
+    // has one good set of proportions; letting a host stretch it to a wall of gridlines is not
+    // flexibility. Every instrument plug-in worth looking at scales rather than reflows.
+    setResizeLimits (minimumWidth, minimumHeight, maximumWidth, maximumHeight);
+
+    if (auto* boundsConstrainer = getConstrainer())
+        boundsConstrainer->setFixedAspectRatio (static_cast<double> (defaultWidth) / defaultHeight);
+
     setSize (defaultWidth, defaultHeight);
 
     startTimerHz (refreshHz);
@@ -121,87 +103,81 @@ PluginEditor::~PluginEditor()
 
     if (auto* documentController = processorReference.getConversionDocumentController())
         documentController->removeListener (this);
+
+    setLookAndFeel (nullptr);
 }
 
-void PluginEditor::addSlider (LabelledSlider& control, const char* parameterId, const juce::String& name)
+// ==================================================================================
+// Voices
+
+juce::String PluginEditor::describeLoadedVoice() const
 {
-    control.label.setText (name, juce::dontSendNotification);
-    control.label.setFont (juce::FontOptions { 11.0f });
-    control.label.setColour (juce::Label::textColourId, dimTextColour);
-    control.label.setJustificationType (juce::Justification::centred);
-    addAndMakeVisible (control.label);
+    auto& loader = processorReference.getVoiceLoader();
 
-    control.slider.setColour (juce::Slider::rotarySliderFillColourId, accentColour);
-    control.slider.setColour (juce::Slider::textBoxTextColourId, textColour);
-    control.slider.setColour (juce::Slider::textBoxOutlineColourId, juce::Colours::transparentBlack);
-    control.slider.setTextBoxStyle (juce::Slider::TextBoxBelow, false, 64, 16);
-    addAndMakeVisible (control.slider);
+    if (loader.isLoading())
+        return "Loading " + loader.getRequestedName();
 
-    control.attachment = std::make_unique<juce::AudioProcessorValueTreeState::SliderAttachment> (
-        processorReference.getParameters(), parameterId, control.slider);
+    if (auto voice = loader.getVoice())
+    {
+        const auto rate = voice->getManifest().modelSampleRate;
+        return voice->getName()
+             + (rate > 0 ? qualifierGap + juce::String (rate / 1000) + " kHz" : juce::String());
+    }
+
+    return "No voice";
 }
 
-void PluginEditor::refreshVoiceList()
+void PluginEditor::showVoiceMenu()
 {
-    const juce::ScopedValueSetter<bool> suppress { isRefreshing, true };
-
     auto& library = processorReference.getVoiceLoader().getLibrary();
 
     if (library.getEntries().empty())
         library.rescan();
 
-    const auto previousSelection = voiceSelector.getText();
+    const auto& entries = library.getEntries();
+    const auto loadedName = processorReference.getVoiceLoader().getRequestedName();
 
-    voiceSelector.clear (juce::dontSendNotification);
-    voiceNames.clear();
+    juce::PopupMenu menu;
+    menu.setLookAndFeel (&lookAndFeel);
 
-    auto itemId = 1;
-
-    for (const auto& entry : library.getEntries())
+    for (std::size_t entryIndex = 0; entryIndex < entries.size(); ++entryIndex)
     {
-        voiceNames.push_back (entry.name);
-
-        auto description = entry.name;
-
-        if (entry.modelSampleRate > 0)
-            description += "  " + juce::String (entry.modelSampleRate / 1000) + " kHz";
-
-        if (! entry.hasRetrieval)
-            description += "  (no timbre index)";
-
-        voiceSelector.addItem (description, itemId++);
+        const auto& entry = entries[entryIndex];
+        menu.addItem (static_cast<int> (entryIndex) + 1,
+                      describeEntry (entry),
+                      true,
+                      entry.name == loadedName);
     }
 
-    // Restore the selection by name, since the item ids will have shifted.
-    const auto* focused = getFocusedModification();
-    const auto requested = processorReference.getVoiceLoader().getRequestedName();
+    if (entries.empty())
+        menu.addItem (-1, "No voices in " + VoiceModelLibrary::getUserModelDirectory().getFullPathName(), false, false);
 
-    const auto wanted = focused != nullptr && focused->getVoiceName().isNotEmpty()
-                      ? focused->getVoiceName()
-                      : (requested.isNotEmpty() ? requested : previousSelection);
+    menu.addSeparator();
+    menu.addItem (rescanItemId, "Rescan");
 
-    for (std::size_t index = 0; index < voiceNames.size(); ++index)
-    {
-        if (voiceNames[index] == wanted)
-        {
-            voiceSelector.setSelectedId (static_cast<int> (index) + 1, juce::dontSendNotification);
-            break;
-        }
-    }
+    // Anchored to the field it came from, which is how a preset field behaves everywhere else.
+    menu.showMenuAsync (juce::PopupMenu::Options {}
+                            .withTargetComponent (voiceButton)
+                            .withMinimumWidth (voiceButton.getWidth())
+                            .withStandardItemHeight (24),
+                        [this, entries] (int chosenId)
+                        {
+                            if (chosenId == rescanItemId)
+                            {
+                                processorReference.getVoiceLoader().getLibrary().rescan();
+                                refresh();
+                                return;
+                            }
+
+                            const auto chosenIndex = chosenId - 1;
+
+                            if (chosenIndex >= 0 && chosenIndex < static_cast<int> (entries.size()))
+                                applyVoice (entries[static_cast<std::size_t> (chosenIndex)].name);
+                        });
 }
 
-void PluginEditor::applySelectedVoice()
+void PluginEditor::applyVoice (const juce::String& name)
 {
-    if (isRefreshing)
-        return;
-
-    const auto selectedIndex = voiceSelector.getSelectedId() - 1;
-
-    if (selectedIndex < 0 || selectedIndex >= static_cast<int> (voiceNames.size()))
-        return;
-
-    const auto& name = voiceNames[static_cast<std::size_t> (selectedIndex)];
-
     if (auto* documentController = processorReference.getConversionDocumentController())
     {
         for (auto* modification : processorReference.getEditableModifications())
@@ -210,8 +186,8 @@ void PluginEditor::applySelectedVoice()
         return;
     }
 
-    // Insert mode: load the voice, then convert whatever has already been captured so the
-    // change is audible without another pass of the transport.
+    // Insert mode: load, then convert whatever has already been captured, so the change is
+    // audible without another pass of the transport.
     processorReference.getVoiceLoader().request (name, [this]
     {
         auto& converter = processorReference.getInsertConverter();
@@ -227,216 +203,328 @@ ConversionModification* PluginEditor::getFocusedModification() const
     return modifications.empty() ? nullptr : modifications.front();
 }
 
-void PluginEditor::refreshFromModel()
+// ==================================================================================
+// State
+
+PluginEditor::Report PluginEditor::describeModification() const
 {
+    using State = ConversionModification::State;
+
+    Report result;
     auto* documentController = processorReference.getConversionDocumentController();
-
-    if (documentController == nullptr)
-    {
-        refreshFromInsertConverter();
-        return;
-    }
-
-    convertButton.setVisible (false);
-    clearCaptureButton.setVisible (false);
-
-    if (documentController->isLoadingVoice())
-    {
-        statusLabel.setText ("Loading " + documentController->getRequestedVoiceName(), juce::dontSendNotification);
-        pitchCurveView.setRenderState (ConversionModification::State::queued, 0.0f,
-                                       "Loading voice...");
-        return;
-    }
 
     if (const auto loadError = documentController->getLoadError(); loadError.isNotEmpty())
     {
-        statusLabel.setText ("Load failed", juce::dontSendNotification);
-        pitchCurveView.setRenderState (ConversionModification::State::failed, 0.0f, loadError);
-        return;
+        result.status = "Load failed";
+        result.caption = loadError;
+        result.isAlert = true;
+        return result;
+    }
+
+    if (documentController->isLoadingVoice())
+    {
+        result.status = "Loading";
+        result.caption = "Loading " + documentController->getRequestedVoiceName() + "...";
+        result.isBusy = true;
+        return result;
     }
 
     auto* modification = getFocusedModification();
 
     if (modification == nullptr)
     {
-        statusLabel.setText ("No region", juce::dontSendNotification);
-        pitchCurveView.setConversion (nullptr);
-        pitchCurveView.setRenderState (ConversionModification::State::idle, 0.0f,
-                                       "Add RVCARA to a track with audio on it.");
-        return;
+        result.status = "No region";
+        result.caption = "Add RVCARA to a track with audio on it.";
+        return result;
     }
 
     if (documentController->getVoiceModel() == nullptr)
     {
-        statusLabel.setText ("No voice", juce::dontSendNotification);
-        pitchCurveView.setRenderState (ConversionModification::State::idle, 0.0f, describeMissingVoice());
-        return;
+        result.status = "No voice";
+        result.caption = "No voice installed.\nPut an exported voice in\n"
+                       + VoiceModelLibrary::getUserModelDirectory().getFullPathName();
+        return result;
     }
 
-    statusLabel.setText (describeState (*modification), juce::dontSendNotification);
+    result.progress = modification->getProgress();
 
-    pitchCurveView.setConversion (modification->getConversion());
-    pitchCurveView.setRenderState (modification->getState(),
-                                   modification->getProgress(),
-                                   modification->getState() == ConversionModification::State::failed
-                                       ? modification->getError()
-                                       : juce::String());
+    switch (modification->getState())
+    {
+        case State::idle:
+            result.status = modification->getSettings().isBypassed ? "Bypassed" : "Ready";
+            break;
+
+        case State::queued:
+            result.status = "Queued";
+            result.isBusy = true;
+            break;
+
+        case State::rendering:
+            result.status = "Converting";
+            result.detail = juce::String (juce::roundToInt (result.progress * 100.0f)) + "%";
+            result.isBusy = true;
+            break;
+
+        case State::ready:
+            result.status = "Converted";
+
+            if (! modification->isConversionCurrent())
+                result.detail = "out of date";
+
+            break;
+
+        case State::failed:
+            result.status = "Failed";
+            result.caption = modification->getError();
+            result.isAlert = true;
+            break;
+    }
+
+    return result;
 }
 
-void PluginEditor::refreshFromInsertConverter()
+PluginEditor::Report PluginEditor::describeCapture() const
 {
     using State = InsertConverter::State;
 
+    Report result;
     auto& loader = processorReference.getVoiceLoader();
     auto& converter = processorReference.getInsertConverter();
 
-    const auto capturedSeconds = converter.getCapturedSeconds();
-
-    convertButton.setVisible (true);
-    clearCaptureButton.setVisible (true);
-    convertButton.setEnabled (capturedSeconds > 0.0 && loader.getVoice() != nullptr);
-    clearCaptureButton.setEnabled (capturedSeconds > 0.0);
-
-    pitchCurveView.setConversion (converter.getConversion());
+    if (const auto loadError = loader.getError(); loadError.isNotEmpty())
+    {
+        result.status = "Load failed";
+        result.caption = loadError;
+        result.isAlert = true;
+        return result;
+    }
 
     if (loader.isLoading())
     {
-        statusLabel.setText ("Loading " + loader.getRequestedName(), juce::dontSendNotification);
-        pitchCurveView.setRenderState (ConversionModification::State::queued, 0.0f, "Loading voice...");
-        return;
-    }
-
-    if (const auto loadError = loader.getError(); loadError.isNotEmpty())
-    {
-        statusLabel.setText ("Load failed", juce::dontSendNotification);
-        pitchCurveView.setRenderState (ConversionModification::State::failed, 0.0f, loadError);
-        return;
+        result.status = "Loading";
+        result.caption = "Loading " + loader.getRequestedName() + "...";
+        result.isBusy = true;
+        return result;
     }
 
     if (loader.getVoice() == nullptr)
     {
-        statusLabel.setText ("No voice", juce::dontSendNotification);
-        pitchCurveView.setRenderState (ConversionModification::State::idle, 0.0f, describeMissingVoice());
-        return;
+        result.status = "No voice";
+        result.caption = "No voice installed.\nPut an exported voice in\n"
+                       + VoiceModelLibrary::getUserModelDirectory().getFullPathName();
+        return result;
     }
 
-    // The state names map onto the pitch view's, which was written for the ARA path; the two
-    // vocabularies are the same idea and sharing the view keeps them looking identical.
-    const auto mapped = [] (State state)
-    {
-        switch (state)
-        {
-            case State::idle:      return ConversionModification::State::idle;
-            case State::capturing: return ConversionModification::State::idle;
-            case State::queued:    return ConversionModification::State::queued;
-            case State::rendering: return ConversionModification::State::rendering;
-            case State::ready:     return ConversionModification::State::ready;
-            case State::failed:    return ConversionModification::State::failed;
-        }
+    const auto capturedSeconds = converter.getCapturedSeconds();
+    result.progress = converter.getProgress();
 
-        return ConversionModification::State::idle;
-    };
-
-    const auto state = converter.getState();
-    juce::String message;
-    juce::String status;
-
-    switch (state)
+    switch (converter.getState())
     {
         case State::idle:
-            status = "Waiting";
-            message = "Play the track. RVCARA captures the vocal as it goes, converts it, "
-                      "and plays the converted voice back in place on the next pass.";
+            result.status = "Waiting";
+            result.caption = "Play the track. RVCARA takes the vocal in as it goes, converts it "
+                             "when the transport stops, and plays the converted voice back in "
+                             "place on the next pass.";
             break;
 
         case State::capturing:
-            status = "Captured " + juce::String (capturedSeconds, 1) + " s";
-            message = converter.hasReachedCaptureLimit()
-                        ? "Capture buffer is full; only the first "
-                              + juce::String (juce::roundToInt (InsertConverter::maximumCaptureSeconds / 60.0))
-                              + " minutes will convert."
-                        : juce::String();
+            result.status = "Listening";
+            result.detail = juce::String (capturedSeconds, 1) + " s";
+
+            if (converter.hasReachedCaptureLimit())
+                result.caption = "Capture is full; only the first "
+                               + juce::String (juce::roundToInt (InsertConverter::maximumCaptureSeconds / 60.0))
+                               + " minutes will convert.";
+
             break;
 
         case State::queued:
-            status = "Queued";
+            result.status = "Queued";
+            result.isBusy = true;
             break;
 
         case State::rendering:
-            status = "Converting " + juce::String (juce::roundToInt (converter.getProgress() * 100.0f)) + "%";
+            result.status = "Converting";
+            result.detail = juce::String (juce::roundToInt (result.progress * 100.0f)) + "%";
+            result.isBusy = true;
             break;
 
         case State::ready:
-            status = converter.isConversionStale() ? "Converted (out of date)" : "Converted";
-            message = converter.isConversionStale()
-                        ? juce::String ("Settings changed since this render. Press Convert to update.")
-                        : juce::String();
+            result.status = "Converted";
+
+            if (converter.isConversionStale())
+                result.detail = "out of date";
+            else
+                result.detail = juce::String (capturedSeconds, 1) + " s";
+
             break;
 
         case State::failed:
-            status = "Failed";
-            message = converter.getError();
+            result.status = "Failed";
+            result.caption = converter.getError();
+            result.isAlert = true;
             break;
     }
 
-    statusLabel.setText (status, juce::dontSendNotification);
-    pitchCurveView.setRenderState (mapped (state), converter.getProgress(), message);
+    return result;
 }
 
-void PluginEditor::conversionStateChanged()
+PluginEditor::Report PluginEditor::describeState() const
 {
-    refreshVoiceList();
-    refreshFromModel();
+    return processorReference.isUsingARA() ? describeModification() : describeCapture();
 }
 
-void PluginEditor::timerCallback()
+void PluginEditor::refresh()
 {
-    refreshFromModel();
+    report = describeState();
+
+    voiceButton.setButtonText (describeLoadedVoice());
+
+    const auto isUsingARA = processorReference.isUsingARA();
+    auto& converter = processorReference.getInsertConverter();
+    const auto capturedSeconds = isUsingARA ? 0.0 : converter.getCapturedSeconds();
+
+    convertButton.setVisible (! isUsingARA);
+    clearCaptureButton.setVisible (! isUsingARA);
+    convertButton.setEnabled (capturedSeconds > 0.0
+                              && processorReference.getVoiceLoader().getVoice() != nullptr);
+    clearCaptureButton.setEnabled (capturedSeconds > 0.0);
+
+    pitchCurveView.setConversion (isUsingARA
+                                      ? (getFocusedModification() != nullptr
+                                             ? getFocusedModification()->getConversion()
+                                             : nullptr)
+                                      : converter.getConversion());
+
+    pitchCurveView.setCaption (report.caption, report.isAlert);
+    repaint();
+}
+
+void PluginEditor::conversionStateChanged() { refresh(); }
+void PluginEditor::timerCallback()          { refresh(); }
+
+// ==================================================================================
+// Painting
+
+void PluginEditor::paintHeader (juce::Graphics& graphics, juce::Rectangle<int> bounds) const
+{
+    graphics.setColour (Palette::bar);
+    graphics.fillRect (bounds);
+
+    // A one-pixel highlight along the top edge. Not a bevel — a bevel is a drawing of a
+    // physical thing — but the same cue a bevel exploits, at a hundredth of the ink.
+    graphics.setColour (Palette::edge.withAlpha (0.6f));
+    graphics.fillRect (bounds.getX(), bounds.getY(), bounds.getWidth(), 1);
+
+    // The accent appears once in the header, as the rule beneath it. That single line is what
+    // makes the panel look built rather than assembled.
+    graphics.setColour (Palette::accent.withAlpha (0.55f));
+    graphics.fillRect (bounds.getX(), bounds.getBottom() - 1, bounds.getWidth(), 1);
+
+    auto textBounds = bounds.reduced (Metrics::margin, 0).toFloat();
+
+    PanelLookAndFeel::drawTrackedText (graphics,
+                                       "RVCARA",
+                                       textBounds,
+                                       juce::Justification::left,
+                                       TypeScale::title,
+                                       Metrics::tracking + 1.0f,
+                                       Palette::text);
+
+    const auto titleWidth = PanelLookAndFeel::getTrackedTextWidth ("RVCARA",
+                                                                   TypeScale::title,
+                                                                   Metrics::tracking + 1.0f);
+
+    textBounds.removeFromLeft (titleWidth + 12.0f);
+
+    PanelLookAndFeel::drawTrackedText (graphics,
+                                       processorReference.isUsingARA() ? "ARA" : "INSERT",
+                                       textBounds,
+                                       juce::Justification::left,
+                                       TypeScale::label,
+                                       Metrics::tracking,
+                                       Palette::dimText);
+}
+
+void PluginEditor::paintFooter (juce::Graphics& graphics, juce::Rectangle<int> bounds) const
+{
+    graphics.setColour (Palette::bar);
+    graphics.fillRect (bounds);
+    graphics.setColour (Palette::rule);
+    graphics.fillRect (bounds.getX(), bounds.getY(), bounds.getWidth(), 1);
+
+    auto textBounds = bounds.reduced (Metrics::margin, 0).toFloat();
+
+    // A lamp, because a state you can see without reading is worth the eight pixels.
+    const auto lampColour = report.isAlert ? Palette::alert
+                          : report.isBusy  ? Palette::accent
+                                           : Palette::dimText;
+
+    const auto lamp = juce::Rectangle<float> { textBounds.getX(), textBounds.getCentreY() - 3.0f, 6.0f, 6.0f };
+    graphics.setColour (lampColour);
+    graphics.fillEllipse (lamp);
+
+    textBounds.removeFromLeft (lamp.getWidth() + 8.0f);
+
+    PanelLookAndFeel::drawTrackedText (graphics,
+                                       report.status.toUpperCase(),
+                                       textBounds,
+                                       juce::Justification::left,
+                                       TypeScale::label,
+                                       Metrics::tracking,
+                                       report.isAlert ? Palette::alert : Palette::text);
+
+    if (report.detail.isNotEmpty())
+    {
+        // Right of the status, left of the buttons, which the layout has already reserved.
+        const auto detailBounds = textBounds.withTrimmedRight (
+            static_cast<float> (processorReference.isUsingARA() ? 0 : 2 * buttonWidth + Metrics::gap));
+
+        PanelLookAndFeel::drawTrackedText (graphics,
+                                           report.detail.toUpperCase(),
+                                           detailBounds,
+                                           juce::Justification::right,
+                                           TypeScale::label,
+                                           Metrics::tracking,
+                                           Palette::dimText);
+    }
+
+    // Progress as a rule along the top edge of the footer rather than as a bar: it is
+    // information about something already visible, and does not need its own object.
+    if (report.isBusy && report.progress > 0.0f)
+    {
+        graphics.setColour (Palette::accent);
+        graphics.fillRect (bounds.getX(),
+                           bounds.getY(),
+                           juce::roundToInt (static_cast<float> (bounds.getWidth()) * report.progress),
+                           1);
+    }
 }
 
 void PluginEditor::paint (juce::Graphics& graphics)
 {
-    graphics.fillAll (panelColour);
+    graphics.fillAll (Palette::ground);
+
+    paintHeader (graphics, getLocalBounds().removeFromTop (Metrics::headerHeight));
+    paintFooter (graphics, getLocalBounds().removeFromBottom (Metrics::footerHeight));
 }
 
 void PluginEditor::resized()
 {
-    auto bounds = getLocalBounds().reduced (12);
+    auto bounds = getLocalBounds();
 
-    auto headerBounds = bounds.removeFromTop (28);
-    titleLabel.setBounds (headerBounds.removeFromLeft (110));
-    statusLabel.setBounds (headerBounds);
+    auto headerBounds = bounds.removeFromTop (Metrics::headerHeight).reduced (Metrics::margin, 7);
+    bypassButton.setBounds (headerBounds.removeFromRight (bypassWidth));
+    headerBounds.removeFromRight (Metrics::gap);
+    voiceButton.setBounds (headerBounds.removeFromRight (
+        juce::jmin (voiceButtonWidth, headerBounds.getWidth())));
 
-    bounds.removeFromTop (8);
+    auto footerBounds = bounds.removeFromBottom (Metrics::footerHeight).reduced (Metrics::margin, 5);
+    clearCaptureButton.setBounds (footerBounds.removeFromRight (buttonWidth));
+    footerBounds.removeFromRight (Metrics::gap);
+    convertButton.setBounds (footerBounds.removeFromRight (buttonWidth));
 
-    auto voiceBounds = bounds.removeFromTop (26);
-    voiceLabel.setBounds (voiceBounds.removeFromLeft (40));
-    rescanButton.setBounds (voiceBounds.removeFromRight (72).reduced (0, 1));
-    voiceBounds.removeFromRight (6);
-    voiceSelector.setBounds (voiceBounds);
-
-    bounds.removeFromTop (10);
-
-    auto controlBounds = bounds.removeFromBottom (110);
-
-    auto buttonRow = controlBounds.removeFromBottom (22);
-    bypassButton.setBounds (buttonRow.removeFromLeft (90));
-    convertButton.setBounds (buttonRow.removeFromLeft (84).reduced (2, 0));
-    clearCaptureButton.setBounds (buttonRow.removeFromLeft (68).reduced (2, 0));
-
-    // Five controls sharing the width equally, each with its label above.
-    const auto controlWidth = controlBounds.getWidth() / 5;
-
-    for (auto* control : { &pitchControl, &timbreControl, &consonantControl,
-                           &dynamicsControl, &variationControl })
-    {
-        auto slot = controlBounds.removeFromLeft (controlWidth);
-        control->label.setBounds (slot.removeFromTop (14));
-        control->slider.setBounds (slot.reduced (4, 0));
-    }
-
-    bounds.removeFromBottom (8);
-    pitchCurveView.setBounds (bounds);
+    pitchCurveView.setBounds (bounds.reduced (Metrics::margin, Metrics::gap));
 }
 
 } // namespace rvcara

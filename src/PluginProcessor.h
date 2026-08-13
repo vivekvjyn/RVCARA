@@ -29,9 +29,10 @@ namespace rvcara
     the constructor — hosts instantiate plug-ins while scanning, and a scan should not read a
     gigabyte of graph off the disk.
 
-    Parameters exist so the host can automate and display the controls, but in ARA mode the
-    model is the authority: the values are pushed into the audio modifications of whichever
-    regions this instance renders, and the editor reads state back from there.
+    The parameters are the host's surface, not the panel's: the editor has no controls for
+    them, and they are reached by automation or by the generic view every host provides. In
+    ARA mode the model remains the authority — a change is pushed into the audio modifications
+    of whichever regions this instance renders, which decide whether it invalidates a render.
 */
 class PluginProcessor final : public juce::AudioProcessor,
                               public juce::AudioProcessorARAExtension,
@@ -99,13 +100,6 @@ public:
     /** @returns The settings the parameters currently describe. */
     [[nodiscard]] ConversionSettings getSettingsFromParameters() const;
 
-    /** Copies a modification's settings into the parameters, without echoing back.
-
-        Used when the editor's selection changes so the controls show what the selected
-        region is actually using.
-    */
-    void setParametersFromSettings (const ConversionSettings& settings);
-
     /** @returns The modifications this instance renders, or every modification in the
                 document if the host has not assigned this instance any regions yet.
     */
@@ -139,12 +133,6 @@ private:
     */
     VoiceLoader insertVoiceLoader;
     InsertConverter insertConverter;
-
-    /** Suppresses the parameter listener while the editor pushes state in, so that
-        showing a region's settings does not immediately write them back and requeue a
-        render.
-    */
-    bool isSynchronisingParameters { false };
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (PluginProcessor)
 };

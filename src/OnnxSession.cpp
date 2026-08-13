@@ -36,8 +36,13 @@ bool OnnxSession::load (const juce::File& file, int numThreads)
         // vocoder — which dominates the conversion — benefits most.
         options.SetGraphOptimizationLevel (GraphOptimizationLevel::ORT_ENABLE_ALL);
 
-        if (numThreads > 0)
-            options.SetIntraOpNumThreads (numThreads);
+        // One thread per *physical* core, not per hardware thread. ONNX Runtime's own default
+        // counts logical processors, and on this pipeline that loses: measured on an eight-core
+        // Ryzen 7 5800HS with sixteen hardware threads, converting the same phrase took 6.1 s
+        // at the default and 5.6 s pinned to eight — the matrix kernels are already saturating
+        // each core's vector units, so a second thread on the same core only adds contention.
+        options.SetIntraOpNumThreads (numThreads > 0 ? numThreads
+                                                     : juce::SystemStats::getNumPhysicalCpus());
 
         // The graphs have no branch parallelism worth exploiting; one operator at a
         // time, internally threaded, keeps scheduling overhead down.

@@ -1,6 +1,6 @@
 #include "PitchCurveView.h"
 
-#include "PitchConversions.h"
+#include "PanelLookAndFeel.h"
 
 #include <algorithm>
 #include <cmath>
@@ -10,15 +10,19 @@ namespace rvcara
 
 namespace
 {
-    /** How many envelope points to compute per pixel of width. */
+    using Palette = PanelLookAndFeel::Palette;
+    using TypeScale = PanelLookAndFeel::TypeScale;
+    using Metrics = PanelLookAndFeel::Metrics;
+
+    /** How many envelope points to compute across the width. */
     constexpr int envelopeResolution = 512;
 
-    const juce::Colour backgroundColour { 0xff14161a };
-    const juce::Colour gridColour { 0xff23262c };
-    const juce::Colour octaveGridColour { 0xff313640 };
-    const juce::Colour envelopeColour { 0xff2c3a4a };
-    const juce::Colour pitchColour { 0xff5fc9a0 };
-    const juce::Colour textColour { 0xff7d8590 };
+    /** Height reserved along the bottom for second markers. */
+    constexpr float timeRulerHeight = 14.0f;
+
+    /** The lowest and highest MIDI notes with a gridline, C2 to C6. */
+    constexpr int lowestGridNote = 36;
+    constexpr int highestGridNote = 84;
 
     /** @returns A note name like "A3" for a frequency, using A4 = 440 Hz. */
     juce::String describeNote (double frequencyHz)
@@ -30,7 +34,35 @@ namespace
 
         return juce::String (names[static_cast<std::size_t> (midiNote % 12)]) + juce::String (octave);
     }
+
+    /** @returns A tick spacing in seconds that gives a readable number of markers.
+
+        The 1-2-5 sequence is the one every instrument's time base uses, because those are the
+        intervals a reader can subdivide by eye.
+    */
+    double chooseTickSeconds (double totalSeconds, float widthInPixels)
+    {
+        constexpr double candidates[] = { 0.1, 0.2, 0.5, 1.0, 2.0, 5.0, 10.0, 30.0, 60.0 };
+        const auto minimumSpacingInPixels = 56.0;
+
+        for (const auto candidate : candidates)
+            if (candidate / totalSeconds * static_cast<double> (widthInPixels) >= minimumSpacingInPixels)
+                return candidate;
+
+        return candidates[std::size (candidates) - 1];
+    }
 } // namespace
+
+int PitchCurveView::getGridStepInSemitones (juce::Rectangle<float> bounds)
+{
+    // Semitone lines are drawn only when they are far enough apart to read as a grid. Packed
+    // closer than this they become hatching, which competes with the curve and tells the reader
+    // nothing they could act on; the octaves alone then carry the scale.
+    constexpr float smallestUsefulSemitoneSpacing = 9.0f;
+
+    const auto semitoneSpacing = bounds.getHeight() / static_cast<float> (highestGridNote - lowestGridNote);
+    return semitoneSpacing >= smallestUsefulSemitoneSpacing ? 1 : 12;
+}
 
 PitchCurveView::PitchCurveView()
 {
@@ -39,22 +71,30 @@ PitchCurveView::PitchCurveView()
 
 void PitchCurveView::setConversion (ConversionPointer newConversion)
 {
+    if (conversion == newConversion)
+        return;
+
     conversion = std::move (newConversion);
     rebuildEnvelope();
     repaint();
 }
 
-void PitchCurveView::setRenderState (ConversionModification::State state,
-                                     float progress,
-                                     const juce::String& message)
+void PitchCurveView::setCaption (const juce::String& newCaption, bool isAlert)
 {
-    if (renderState == state && juce::approximatelyEqual (renderProgress, progress) && statusMessage == message)
+    if (caption == newCaption && isCaptionAlert == isAlert)
         return;
 
-    renderState = state;
-    renderProgress = progress;
-    statusMessage = message;
+    caption = newCaption;
+    isCaptionAlert = isAlert;
     repaint();
+}
+
+double PitchCurveView::getConversionSeconds() const
+{
+    if (conversion == nullptr || conversion->pitchFrameRate <= 0.0)
+        return 0.0;
+
+    return static_cast<double> (conversion->fundamentalFrequencyHz.size()) / conversion->pitchFrameRate;
 }
 
 void PitchCurveView::rebuildEnvelope()
@@ -96,12 +136,9 @@ std::optional<float> PitchCurveView::getYForFrequency (float frequencyHz, juce::
     return bounds.getBottom() - position * bounds.getHeight();
 }
 
-void PitchCurveView::paintGrid (juce::Graphics& graphics, juce::Rectangle<float> bounds) const
+void PitchCurveView::paintPitchGrid (juce::Graphics& graphics, juce::Rectangle<float> bounds) const
 {
-    graphics.setFont (juce::FontOptions { 11.0f });
-
-    // One line per semitone from C2 up, with octaves picked out and named.
-    for (int midiNote = 36; midiNote <= 84; ++midiNote)
+    for (int midiNote = lowestGridNote; midiNote <= highestGridNote; midiNote += getGridStepInSemitones (bounds))
     {
         const auto frequencyHz = static_cast<float> (440.0 * std::exp2 ((midiNote - 69) / 12.0));
         const auto y = getYForFrequency (frequencyHz, bounds);
@@ -109,51 +146,107 @@ void PitchCurveView::paintGrid (juce::Graphics& graphics, juce::Rectangle<float>
         if (! y.has_value())
             continue;
 
-        const auto isOctave = midiNote % 12 == 0;
+        // Octaves are picked out; the semitones between them, when there is room for them, are
+        // fainter, so the grid gives a sense of interval without becoming the subject.
+        graphics.setColour (midiNote % 12 == 0 ? Palette::edge : Palette::rule);
+        graphics.fillRect (bounds.getX(), *y, bounds.getWidth(), Metrics::hairline);
+    }
+}
 
-        graphics.setColour (isOctave ? octaveGridColour : gridColour);
-        graphics.drawHorizontalLine (juce::roundToInt (*y), bounds.getX(), bounds.getRight());
+void PitchCurveView::paintOctaveNames (juce::Graphics& graphics, juce::Rectangle<float> bounds) const
+{
+    // Drawn after the silhouette rather than with the gridlines: at the middle of the range,
+    // where a voice actually sits, the silhouette is at its thickest and would swallow them.
+    constexpr float labelHeight = 12.0f;
 
-        if (isOctave)
-        {
-            graphics.setColour (textColour);
-            graphics.drawText (describeNote (frequencyHz),
-                               juce::Rectangle<float> { bounds.getX() + 4.0f, *y - 14.0f, 32.0f, 13.0f },
-                               juce::Justification::left);
-        }
+    for (int midiNote = lowestGridNote; midiNote <= highestGridNote; midiNote += 12)
+    {
+        const auto frequencyHz = static_cast<float> (440.0 * std::exp2 ((midiNote - 69) / 12.0));
+        const auto y = getYForFrequency (frequencyHz, bounds);
+
+        if (! y.has_value())
+            continue;
+
+        // Centred on its own line and kept inside the view, so the topmost octave is named
+        // rather than clipped off the edge.
+        const auto labelBounds = juce::Rectangle<float> { bounds.getX() + 5.0f,
+                                                          juce::jlimit (bounds.getY(),
+                                                                        bounds.getBottom() - labelHeight,
+                                                                        *y - labelHeight * 0.5f),
+                                                          40.0f,
+                                                          labelHeight };
+
+        PanelLookAndFeel::drawTrackedText (graphics,
+                                           describeNote (frequencyHz),
+                                           labelBounds,
+                                           juce::Justification::left,
+                                           TypeScale::label,
+                                           Metrics::tracking * 0.5f,
+                                           Palette::dimText);
+    }
+}
+
+void PitchCurveView::paintTimeRuler (juce::Graphics& graphics, juce::Rectangle<float> bounds) const
+{
+    const auto totalSeconds = getConversionSeconds();
+
+    if (totalSeconds <= 0.0)
+        return;
+
+    const auto tickSeconds = chooseTickSeconds (totalSeconds, bounds.getWidth());
+
+    for (auto seconds = tickSeconds; seconds < totalSeconds; seconds += tickSeconds)
+    {
+        const auto x = bounds.getX()
+                     + static_cast<float> (seconds / totalSeconds) * bounds.getWidth();
+
+        graphics.setColour (Palette::rule);
+        graphics.fillRect (x, bounds.getY(), Metrics::hairline, bounds.getHeight() - timeRulerHeight);
+
+        PanelLookAndFeel::drawTrackedText (graphics,
+                                           juce::String (seconds, tickSeconds < 1.0 ? 1 : 0) + "s",
+                                           juce::Rectangle<float> { x + 4.0f,
+                                                                    bounds.getBottom() - timeRulerHeight,
+                                                                    46.0f,
+                                                                    timeRulerHeight },
+                                           juce::Justification::left,
+                                           TypeScale::label,
+                                           Metrics::tracking * 0.5f,
+                                           Palette::dimText);
     }
 }
 
 void PitchCurveView::paintEnvelope (juce::Graphics& graphics, juce::Rectangle<float> bounds) const
 {
-    if (envelope.empty())
+    if (envelope.size() < 2)
         return;
 
-    // A silhouette rather than a waveform: the pitch curve is the subject here, and a
-    // full waveform would compete with it for attention.
+    // A silhouette rather than a waveform: the pitch curve is the subject here, and a full
+    // waveform would compete with it for attention.
     juce::Path silhouette;
     const auto centreY = bounds.getCentreY();
     const auto halfHeight = bounds.getHeight() * 0.5f;
+    const auto lastIndex = static_cast<float> (envelope.size() - 1);
 
     silhouette.startNewSubPath (bounds.getX(), centreY);
 
     for (std::size_t pointIndex = 0; pointIndex < envelope.size(); ++pointIndex)
     {
-        const auto position = static_cast<float> (pointIndex) / static_cast<float> (envelope.size() - 1);
+        const auto position = static_cast<float> (pointIndex) / lastIndex;
         const auto x = bounds.getX() + position * bounds.getWidth();
         silhouette.lineTo (x, centreY - envelope[pointIndex] * halfHeight);
     }
 
     for (auto pointIndex = static_cast<int> (envelope.size()) - 1; pointIndex >= 0; --pointIndex)
     {
-        const auto position = static_cast<float> (pointIndex) / static_cast<float> (envelope.size() - 1);
+        const auto position = static_cast<float> (pointIndex) / lastIndex;
         const auto x = bounds.getX() + position * bounds.getWidth();
         silhouette.lineTo (x, centreY + envelope[static_cast<std::size_t> (pointIndex)] * halfHeight);
     }
 
     silhouette.closeSubPath();
 
-    graphics.setColour (envelopeColour);
+    graphics.setColour (Palette::silhouette);
     graphics.fillPath (silhouette);
 }
 
@@ -175,8 +268,8 @@ void PitchCurveView::paintPitch (juce::Graphics& graphics, juce::Rectangle<float
 
         if (! y.has_value())
         {
-            // Break the line rather than joining across a gap, so an unvoiced passage does
-            // not read as a glissando.
+            // Break the line rather than joining across a gap, so an unvoiced passage does not
+            // read as a glissando.
             isDrawing = false;
             continue;
         }
@@ -196,49 +289,54 @@ void PitchCurveView::paintPitch (juce::Graphics& graphics, juce::Rectangle<float
         }
     }
 
-    graphics.setColour (pitchColour);
-    graphics.strokePath (curve, juce::PathStrokeType { 1.6f });
+    graphics.setColour (Palette::accent);
+    graphics.strokePath (curve, juce::PathStrokeType { 1.5f, juce::PathStrokeType::curved });
+}
+
+void PitchCurveView::paintCaption (juce::Graphics& graphics, juce::Rectangle<float> bounds) const
+{
+    // A measure, not a line. Text set across the full width of a wide panel is unreadable at
+    // any size — the eye loses the return — so the caption gets a column of about sixty
+    // characters and wraps inside it, centred in the well it is explaining.
+    constexpr float captionWidth = 380.0f;
+    constexpr float captionHeight = 76.0f;
+
+    const auto captionBounds = bounds.withSizeKeepingCentre (juce::jmin (captionWidth, bounds.getWidth() - 24.0f),
+                                                             captionHeight);
+
+    // A plate, one step up from the well: text laid straight over gridlines is hard to read,
+    // and a backdrop the same colour as the well only breaks the lines without explaining why.
+    graphics.setColour (Palette::ground);
+    graphics.fillRoundedRectangle (captionBounds, Metrics::corner);
+    graphics.setColour (Palette::rule);
+    graphics.drawRoundedRectangle (captionBounds, Metrics::corner, Metrics::hairline);
+
+    graphics.setColour (isCaptionAlert ? Palette::alert : Palette::dimText);
+    graphics.setFont (juce::Font { juce::FontOptions { TypeScale::caption } });
+    graphics.drawFittedText (caption,
+                             captionBounds.reduced (14.0f, 8.0f).toNearestInt(),
+                             juce::Justification::centred,
+                             4);
 }
 
 void PitchCurveView::paint (juce::Graphics& graphics)
 {
-    graphics.fillAll (backgroundColour);
+    graphics.fillAll (Palette::well);
 
-    auto bounds = getLocalBounds().toFloat().reduced (1.0f);
+    const auto bounds = getLocalBounds().toFloat().reduced (Metrics::hairline);
+    const auto plotBounds = bounds.withTrimmedBottom (timeRulerHeight);
 
-    paintGrid (graphics, bounds);
-    paintEnvelope (graphics, bounds);
-    paintPitch (graphics, bounds);
+    paintPitchGrid (graphics, plotBounds);
+    paintTimeRuler (graphics, bounds);
+    paintEnvelope (graphics, plotBounds);
+    paintPitch (graphics, plotBounds);
+    paintOctaveNames (graphics, plotBounds);
 
-    graphics.setColour (gridColour);
-    graphics.drawRect (getLocalBounds(), 1);
+    graphics.setColour (Palette::edge);
+    graphics.drawRect (bounds, Metrics::hairline);
 
-    using State = ConversionModification::State;
-
-    if (renderState == State::rendering || renderState == State::queued)
-    {
-        // A progress bar drawn over the previous render, which stays visible: the user can
-        // see what they are currently hearing while the replacement is prepared.
-        const auto barBounds = bounds.removeFromBottom (4.0f);
-
-        graphics.setColour (gridColour);
-        graphics.fillRect (barBounds);
-
-        graphics.setColour (pitchColour);
-        graphics.fillRect (barBounds.withWidth (barBounds.getWidth() * renderProgress));
-    }
-
-    if (statusMessage.isNotEmpty())
-    {
-        graphics.setColour (backgroundColour.withAlpha (0.85f));
-        const auto textBounds = bounds.withSizeKeepingCentre (bounds.getWidth() - 20.0f, 44.0f);
-        graphics.fillRoundedRectangle (textBounds, 4.0f);
-
-        graphics.setColour (textColour);
-        graphics.setFont (juce::FontOptions { 13.0f });
-        graphics.drawFittedText (statusMessage, textBounds.toNearestInt().reduced (8, 4),
-                                 juce::Justification::centred, 2);
-    }
+    if (caption.isNotEmpty())
+        paintCaption (graphics, bounds);
 }
 
 } // namespace rvcara

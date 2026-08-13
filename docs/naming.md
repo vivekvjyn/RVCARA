@@ -174,7 +174,44 @@ The published term wins, even when it is longer:
 | Note number | `midiNote` | integer 0–127, `midiNoteFractional` when continuous |
 | Spectral character | `timbre`, `formantShift` | |
 
-## 8. Mapping from RVC's vocabulary
+## 8. Interface and typography
+
+The panel borrows its vocabulary from print and from hardware, because those are the trades
+that named these things first and a reader from either should recognise them.
+
+| Term | Where it comes from | What it names here |
+| --- | --- | --- |
+| `panel` | Hardware | The plug-in's whole face, hence `PanelLookAndFeel` |
+| `bar` | Interface design | The header and footer strips |
+| `well` | Hardware, then web | The recessed area a display sits in |
+| `plate` | Hardware | A raised area carrying text, as the caption's backdrop |
+| `rule` | Typography | A hairline drawn to separate, never to decorate |
+| `edge` | — | The outline of a control or a well |
+| `lamp` | Hardware | The dot in the footer that reports state without words |
+| `tracking` | Typography | Letter spacing applied evenly across a run of capitals |
+| `type scale` | Typography | The fixed set of sizes; four, so it stays a hierarchy |
+| `caption` | Publishing | Explanatory text belonging to the thing above or behind it |
+| `silhouette` | Illustration | The filled loudness shape behind the pitch curve |
+| `measure` | Typography | The width text is set across, capped so the eye can return |
+
+Rules that follow:
+
+- **Colours are named for their role, never their hue.** `Palette::ground`, `Palette::accent`,
+  `Palette::dimText`. `darkGrey` becomes a lie the first time the panel is lightened, and
+  `blue` becomes one the first time the accent changes.
+- **`draw` for painting, `paint` for a component's own pass.** `paintHeader` is what the
+  editor does to itself; `drawTrackedText` is what a caller asks the look and feel to do
+  anywhere. This is JUCE's own split between `Component::paint` and `Graphics::draw*`.
+- **A view is named for what it shows, not for how.** `PitchCurveView`, not `PitchCanvas` or
+  `CurveWidget`.
+- **`describe...` returns text for a human**, and nothing else does: `describeNote`,
+  `describeEntry`, `describeState`. A function called `getVoiceName` returns an identifier; a
+  function called `describeLoadedVoice` returns something to put on the panel.
+- Sizes and spacings are `constexpr` members of `Metrics`, in logical pixels, named for the
+  thing they measure (`headerHeight`, `margin`, `hairline`) — never `size1`, never a bare
+  number at the point of use.
+
+## 9. Mapping from RVC's vocabulary
 
 Upstream RVC uses terse Python names, several of them opaque. The engine renames
 them once, at the boundary, and uses the clear name everywhere inside. This table
@@ -199,7 +236,7 @@ is the contract between the two projects — a reader comparing our C++ to
 | `hubert` | `ContentEncoder` | |
 | `rmvpe` | `PitchEstimator` | |
 
-## 9. Computer science and structure
+## 10. Computer science and structure
 
 - Suffix a type with the pattern it implements only when that is the type's
   whole point: `VoiceModelLibrary` (a registry), `ConversionCache`,
@@ -214,7 +251,7 @@ is the contract between the two projects — a reader comparing our C++ to
 - Collections are plural (`playbackRegions`); maps read
   `<key>To<value>`: `sourceToConversion`.
 
-## 10. Files, directories and assets
+## 11. Files, directories and assets
 
 - All C++ lives flat in `src/`, in one `rvcara` namespace. An earlier layout split it into
   `dsp/`, `engine/`, `ara/`, `gui/` and `plugin/` with a namespace each; for around forty

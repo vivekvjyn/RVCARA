@@ -44,8 +44,8 @@ public:
     /** Loads every asset in a model directory.
 
         @param directory   Directory holding `manifest.json` and the assets beside it.
-        @param numThreads  Intra-operator threads for inference; zero lets ONNX Runtime
-                           choose one per core.
+        @param numThreads  Intra-operator threads for inference; zero means one per physical
+                           core, which measured fastest.
         @param error       Set to a description of the problem on failure.
         @returns           The loaded voice, or nullptr.
     */
