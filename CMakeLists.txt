@@ -204,6 +204,21 @@ endforeach()
 function(rvcara_copy_onnxruntime_beside target)
     rvcara_wait_for_onnxruntime(${target})
 
+    # Make the loader look beside the binary. Without this the copy is decoration: CMake records
+    # the directory it linked against, an absolute path into this build tree, so the artefact
+    # resolves libonnxruntime.so.1 only on the machine that built it and only for as long as the
+    # build directory survives. BUILD_WITH_INSTALL_RPATH replaces that path rather than adding to
+    # it. Ignored on Windows, which has no runpath — a DLL beside the module is already found.
+    if(APPLE)
+        set(loaderRelativePath "@loader_path")
+    else()
+        set(loaderRelativePath "$ORIGIN")
+    endif()
+
+    set_target_properties(${target} PROPERTIES
+        BUILD_WITH_INSTALL_RPATH TRUE
+        INSTALL_RPATH "${loaderRelativePath}")
+
     if(WIN32)
         add_custom_command(TARGET ${target} POST_BUILD
             COMMAND ${CMAKE_COMMAND} -E copy_if_different
