@@ -1,0 +1,175 @@
+/**
+@mainpage RVCARA
+
+Retrieval-based voice conversion as an audio plug-in. Drop it on a vocal track and the vocal is
+re-sung in the trained voice, offline, on the CPU, with nothing sent to a server. The voice
+loads by itself; there is nothing to choose.
+
+The model is RVC v2. Voices are trained and exported with the sibling RTVoice project; this
+repository is the plug-in only.
+
+@section modes The two ways it runs
+
+RVC is not causal: its content encoder is a transformer over the whole utterance, its pitch
+estimator sees the future, and its vocoder is conditioned on a pitch track gap-filled end to
+end. Conversion is therefore always offline. What differs is how the plug-in gets the audio.
+
+Under **ARA**, the host grants random access to the whole region up front, the model sees the
+entire performance, and playback becomes a memory read. Region edits, per-region settings and
+session persistence all work.
+
+Loaded as an **ordinary insert**, rvcara::InsertConverter captures the audio against the host
+timeline, converts it when the transport stops, and plays the conversion back in place on the
+next pass. The first pass is dry.
+
+Neither mode is usable for live monitoring.
+
+@section layout Layout
+
+Only the two JUCE entry points sit at the top of `src/`; everything else is grouped by layer,
+and includes are path-qualified so a file's dependencies name their layer.
+
+| Directory | Contents |
+| --- | --- |
+| `src/` | rvcara::Processor, rvcara::Editor |
+| `src/common/` | rvcara::ConversionSettings, rvcara::BinaryMatrix |
+| `src/dsp/` | rvcara::SincResampler, rvcara::ZeroPhaseFilter, rvcara::MelSpectrogram, pitch maths |
+| `src/model/` | rvcara::VoiceModel, rvcara::ConversionEngine, rvcara::VoiceLoader, sessions, manifest |
+| `src/ara/` | rvcara::DocumentController, rvcara::PlaybackRenderer, rvcara::ConversionModification |
+| `src/insert/` | rvcara::InsertConverter |
+| `src/ui/` | rvcara::PanelLookAndFeel, rvcara::PitchCurveView |
+
+`dsp/`, `common/` and `model/` know nothing about ARA or plug-in formats, which is why the
+tests link them directly without instantiating a plug-in.
+
+@section building Building
+
+Requires CMake 3.24+, a C++20 compiler, and the submodules. Two of them are superprojects
+whose own contents are submodules.
+
+@code
+git submodule update --init --depth 1
+git -C libs/ARA_SDK submodule update --init --depth 1 ARA_API ARA_Library
+git -C libs/onnxruntime submodule update --init --depth 1 cmake/external/onnx
+
+cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release
+cmake --build build
+ctest --test-dir build --output-on-failure
+@endcode
+
+VST3 and LV2 are built everywhere and AU on macOS; the format list follows the host operating
+system, locally and in CI alike. Each artefact carries the ONNX Runtime shared library and its
+soname chain, with `$ORIGIN` in the runpath so they are found beside it.
+
+Every dependency is a submodule, ONNX Runtime included, so the commits this repository names
+are the whole of what it runs. That costs:
+
+- 25 to 45 minutes to compile ONNX Runtime, once, into `build/onnxruntime-install`.
+- A **Python 3.10+ interpreter**, as ONNX Runtime's build tool: its CMake generates the export
+  symbol list by running `tools/ci_build/gen_def.py`. Nothing in RVCARA needs Python and
+  nothing runs at plug-in load.
+- Network access at its configure step, which fetches abseil, protobuf, flatbuffers, re2,
+  eigen and cpuinfo from `libs/onnxruntime/cmake/deps.txt`.
+- About 6 GB of disk and, at ten parallel jobs, around 8 GB of memory.
+
+`-DRVCARA_ONNXRUNTIME_ROOT=<path>` skips all of it and uses an existing installation.
+
+On Linux, JUCE needs ALSA, FreeType, Fontconfig, X11 and GL development packages.
+
+@section voices Voices
+
+A voice is a directory under `res/models/<name>/` holding `content_encoder.onnx` (a
+ContentVec-initialised HuBERT), `pitch_estimator.onnx` (RMVPE), `vocoder.onnx` (the trained
+voice: a VITS flow into an NSF HiFi-GAN), `mel_filter_bank.bin`, `retrieval.bin` (the timbre
+codebook) and `manifest.json`.
+
+rvcara::VoiceModelLibrary searches, in increasing precedence: the shared application data
+directory, the user's application data directory, this working copy's `res/models` (compiled
+in at configure time, since a plug-in cannot reach the repository by a relative path), and any
+path in `RVCARA_MODEL_PATH`.
+
+Every pipeline constant lives in `manifest.json`, so a model trained at another sample rate or
+feature width loads without a plug-in release. The ONNX tensor names are read from it too.
+
+@section panel The panel
+
+A header naming the voice, the pitch display, and a footer reporting state. There are no
+knobs: the voice loads itself and the take converts itself. The parameters still exist and the
+host can automate every one, reached through the generic parameter view.
+
+| Parameter | RVC name | What it does |
+| --- | --- | --- |
+| Pitch | `f0_up_key` | Transposes the estimated melody, in semitones |
+| Timbre | `index_rate` | How far to move toward the trained singer's timbre |
+| Consonants | `protect` | Keeps unvoiced frames nearer the source features |
+| Dynamics | `rms_mix_rate` | Restores the source's loudness contour |
+| Variation | — | Seeds the vocoder's latent; changes the performance, not the notes |
+| Bypass | — | On the panel, beside the voice |
+
+Consonant protection is inert for models whose pitch track is gap-filled, which is all of
+them; it is kept because it matches upstream. See rvcara::PitchEstimator.
+
+@section performance Performance
+
+Measured stage by stage on a Ryzen 7 5800HS (8 cores) converting 37 seconds of vocal in
+21.1 s, which is 0.57 times real time:
+
+| Stage | Time | Share |
+| --- | --- | --- |
+| Vocoder | 15.05 s | 71.3% |
+| Content encoder | 3.31 s | 15.7% |
+| Pitch estimator | 1.36 s | 6.4% |
+| Resamplers, retrieval, filter | 1.40 s | 6.7% |
+
+The vocoder's 400-times upsampling to 40 kHz is the whole cost; making everything else
+infinitely fast would buy 7%. ONNX Runtime's intra-op thread count is set to the number of
+physical cores rather than its own default of hardware threads, which is 8% faster end to end.
+
+Retrieval uses hnswlib rather than exact search: the codebook holds 61,893 vectors of 768
+dimensions, and exact search is about 9.5 GFLOP per second of audio.
+
+A warm voice load is 2 s; the first load of a voice is around 45 s, because the retrieval graph
+is built and cached beside the model.
+
+@section verification Verification status
+
+- **Verified.** 38 GoogleTest cases pass. The exported assets match the reference
+  implementation on real audio: pitch within 1.5 to 6.8 cents, correlation at least 0.999,
+  log-mel distance 0.30 to 0.60, durations sample-exact. The DSP is checked against NumPy and
+  SciPy through the fixtures in `tests/fixtures`, the mel spectrogram to 1e-3 and the
+  zero-phase high-pass to 1e-5.
+- **Verified end to end, outside a host.** Discovery, load and conversion of two sung phrases,
+  compared against the reference render of the same files: log-spectrogram correlation 0.93 and
+  0.91, against 0.64 and 0.71 for the untouched source.
+- **Built and loads.** The VST3 builds with ARA enabled, carries its ARA main factory class,
+  and dlopens cleanly.
+- **Not yet verified.** Behaviour in a real host: ARA region editing, session persistence, and
+  insert-mode capture alignment against the timeline.
+
+@section conventions Conventions
+
+Names follow the framework and the field they belong to, in that order: JUCE house style for
+C++ (`PascalCase` types and files, `camelCase` functions and variables, `num` for counts, no
+member decoration, no `k` prefix), the originating API's spelling at a boundary (ARA entry
+points, ONNX tensor names, manifest keys), and the published term over a paraphrase everywhere
+else. Colours are named for their role rather than their hue, and `describe...` returns text
+meant for a human.
+
+The code carries no comments. Anything a name cannot say is documented here or as Doxygen on
+the declaration.
+
+Warnings come in two tiers. Every target gets `-Wall -Wextra -Wpedantic` plus `-Wshadow`,
+`-Wnon-virtual-dtor`, `-Wcast-align` and `-Woverloaded-virtual`, which JUCE's own sources pass.
+A strict tier — `-Wconversion`, `-Wsign-conversion`, `-Wdouble-promotion`, `-Wfloat-conversion`,
+`-Wold-style-cast`, `-Wuseless-cast`, `-Wcast-qual`, `-Wextra-semi` — goes on the translation
+units that include no third-party header, which is why the DSP core is kept free of framework
+headers. A flag judges every header a unit includes, and JUCE's contain 6,166 old-style casts
+of their own; nothing here silences them, the flags are simply not applied to units that
+include JUCE. Every source in this repository is clean under the full strict tier.
+
+@section licence Licence
+
+MIT. The submodules keep their own licences: JUCE is dual AGPL and commercial, the ARA SDK
+has Celemony's terms, ONNX Runtime and googletest are MIT and BSD, hnswlib is Apache 2.0. A
+voice carries the rights of the recordings it was trained on.
+*/

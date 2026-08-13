@@ -2,9 +2,9 @@ PROJECT_NAME           = RVCARA
 PROJECT_NUMBER         = 0.1.0
 PROJECT_BRIEF          = "Retrieval-based voice conversion as an ARA plug-in"
 
-INPUT                  = ../src
+INPUT                  = mainpage.dox ../src
 RECURSIVE              = YES
-FILE_PATTERNS          = *.h *.cpp
+FILE_PATTERNS          = *.h *.cpp *.dox
 OUTPUT_DIRECTORY       = .
 HTML_OUTPUT            = html
 GENERATE_LATEX         = NO

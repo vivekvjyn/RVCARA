@@ -1,20 +1,14 @@
-# Normalise line endings on the way in and check out LF everywhere. A CRLF checkout of a
-# .sh breaks the CI runners.
 * text=auto eol=lf
 
-# Language-aware diff hunk headers, so `git diff` names the enclosing function.
 *.cpp   text diff=cpp
 *.h     text diff=cpp
 *.md    text diff=markdown
 
-# GitHub reports a bare .h as C. Every header here is C++.
 *.h     linguist-language=C++
 
-# Windows tooling wants its own endings.
 *.bat   text eol=crlf
 *.ps1   text eol=crlf
 
-# Model assets and audio: never line-ending converted, never diffed as text.
 *.onnx  binary
 *.bin   binary
 *.pth   binary
@@ -25,5 +19,4 @@
 *.png   binary
 *.ttf   binary
 
-# Submodules are third-party: keep them out of the language statistics and the diff view.
 libs/** linguist-vendored
