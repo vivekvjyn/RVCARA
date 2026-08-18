@@ -8,18 +8,18 @@
 
 #include <juce_gui_basics/juce_gui_basics.h>
 
-#include <memory>
-#include <vector>
-
 namespace rvcara
 {
-/** @brief The panel: a header naming the voice, the pitch display, and a footer reporting state. */
+/** @brief The panel: a header carrying the model selector, the pitch editor, and a footer
+           reporting state. The selector is the only control on it.
+*/
 class Editor final : public juce::AudioProcessorEditor,
-                           public juce::AudioProcessorEditorARAExtension,
-                           private juce::Timer,
-                           private DocumentController::Listener
+                     public juce::AudioProcessorEditorARAExtension,
+                     private juce::Timer,
+                     private DocumentController::Listener
 {
 public:
+    /** @param processorToUse  Named to avoid shadowing AudioProcessorEditor::processor. */
     explicit Editor (Processor& processorToUse);
     ~Editor() override;
 
@@ -42,20 +42,14 @@ private:
     };
 
     [[nodiscard]] Report describeState() const;
-
     [[nodiscard]] Report describeModification() const;
-
     [[nodiscard]] Report describeCapture() const;
+    [[nodiscard]] ConversionModification* getFocusedModification() const;
+    [[nodiscard]] juce::String describeLoadedVoice() const;
 
     void refresh();
-
     void showVoiceMenu();
-
     void applyVoice (const juce::String& name);
-
-    [[nodiscard]] ConversionModification* getFocusedModification() const;
-
-    [[nodiscard]] juce::String describeLoadedVoice() const;
 
     void paintHeader (juce::Graphics& graphics, juce::Rectangle<int> bounds) const;
     void paintFooter (juce::Graphics& graphics, juce::Rectangle<int> bounds) const;
@@ -63,19 +57,11 @@ private:
     Processor& processorReference;
 
     PanelLookAndFeel lookAndFeel;
-
     juce::TextButton voiceButton;
-
-    juce::TextButton bypassButton { "Bypass" };
-    std::unique_ptr<juce::AudioProcessorValueTreeState::ButtonAttachment> bypassAttachment;
-
-    juce::TextButton convertButton { "Convert" };
-    juce::TextButton clearCaptureButton { "Clear" };
-
     PitchCurveView pitchCurveView;
-
     Report report;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (Editor)
 };
-}
+
+} // namespace rvcara

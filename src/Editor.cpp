@@ -10,19 +10,15 @@ namespace
     using TypeScale = PanelLookAndFeel::TypeScale;
     using Metrics = PanelLookAndFeel::Metrics;
 
-    constexpr int defaultWidth = 620;
-    constexpr int defaultHeight = 340;
-    constexpr int minimumWidth = 460;
-    constexpr int minimumHeight = 252;
-    constexpr int maximumWidth = 1240;
-    constexpr int maximumHeight = 680;
+    constexpr int defaultWidth = 720;
+    constexpr int defaultHeight = 420;
+    constexpr int minimumWidth = 560;
+    constexpr int minimumHeight = 320;
+    constexpr int maximumWidth = 1440;
+    constexpr int maximumHeight = 840;
 
     constexpr int refreshHz = 15;
-
-    constexpr int buttonWidth = 74;
-    constexpr int bypassWidth = 68;
-    constexpr int voiceButtonWidth = 190;
-
+    constexpr int voiceButtonWidth = 220;
     constexpr int rescanItemId = 10000;
 
     const char* qualifierGap = "   ";
@@ -39,7 +35,7 @@ namespace
 
         return description;
     }
-}
+} // namespace
 
 Editor::Editor (Processor& processorToUse)
     : juce::AudioProcessorEditor (&processorToUse),
@@ -51,17 +47,6 @@ Editor::Editor (Processor& processorToUse)
     voiceButton.onClick = [this] { showVoiceMenu(); };
     voiceButton.setTriggeredOnMouseDown (true);
     addAndMakeVisible (voiceButton);
-
-    bypassButton.setClickingTogglesState (true);
-    addAndMakeVisible (bypassButton);
-    bypassAttachment = std::make_unique<juce::AudioProcessorValueTreeState::ButtonAttachment> (
-        processorReference.getParameters(), Processor::ParameterId::isBypassed, bypassButton);
-
-    convertButton.onClick = [this] { processorReference.getInsertConverter().requestConversion(); };
-    addChildComponent (convertButton);
-
-    clearCaptureButton.onClick = [this] { processorReference.getInsertConverter().reset(); };
-    addChildComponent (clearCaptureButton);
 
     addAndMakeVisible (pitchCurveView);
 
@@ -104,7 +89,7 @@ juce::String Editor::describeLoadedVoice() const
              + (rate > 0 ? qualifierGap + juce::String (rate / 1000) + " kHz" : juce::String());
     }
 
-    return "No voice";
+    return "No model";
 }
 
 void Editor::showVoiceMenu()
@@ -121,16 +106,16 @@ void Editor::showVoiceMenu()
     menu.setLookAndFeel (&lookAndFeel);
 
     for (std::size_t entryIndex = 0; entryIndex < entries.size(); ++entryIndex)
-    {
-        const auto& entry = entries[entryIndex];
         menu.addItem (static_cast<int> (entryIndex) + 1,
-                      describeEntry (entry),
+                      describeEntry (entries[entryIndex]),
                       true,
-                      entry.name == loadedName);
-    }
+                      entries[entryIndex].name == loadedName);
 
     if (entries.empty())
-        menu.addItem (-1, "No voices in " + VoiceModelLibrary::getUserModelDirectory().getFullPathName(), false, false);
+        menu.addItem (-1,
+                      "No models in " + VoiceModelLibrary::getUserModelDirectory().getFullPathName(),
+                      false,
+                      false);
 
     menu.addSeparator();
     menu.addItem (rescanItemId, "Rescan");
@@ -138,7 +123,7 @@ void Editor::showVoiceMenu()
     menu.showMenuAsync (juce::PopupMenu::Options {}
                             .withTargetComponent (voiceButton)
                             .withMinimumWidth (voiceButton.getWidth())
-                            .withStandardItemHeight (24),
+                            .withStandardItemHeight (26),
                         [this, entries] (int chosenId)
                         {
                             if (chosenId == rescanItemId)
@@ -214,8 +199,8 @@ Editor::Report Editor::describeModification() const
 
     if (documentController->getVoiceModel() == nullptr)
     {
-        result.status = "No voice";
-        result.caption = "No voice installed.\nPut an exported voice in\n"
+        result.status = "No model";
+        result.caption = "No model installed.\nPut an exported voice in\n"
                        + VoiceModelLibrary::getUserModelDirectory().getFullPathName();
         return result;
     }
@@ -283,8 +268,8 @@ Editor::Report Editor::describeCapture() const
 
     if (loader.getVoice() == nullptr)
     {
-        result.status = "No voice";
-        result.caption = "No voice installed.\nPut an exported voice in\n"
+        result.status = "No model";
+        result.caption = "No model installed.\nPut an exported voice in\n"
                        + VoiceModelLibrary::getUserModelDirectory().getFullPathName();
         return result;
     }
@@ -325,12 +310,8 @@ Editor::Report Editor::describeCapture() const
 
         case State::ready:
             result.status = "Converted";
-
-            if (converter.isConversionStale())
-                result.detail = "out of date";
-            else
-                result.detail = juce::String (capturedSeconds, 1) + " s";
-
+            result.detail = converter.isConversionStale() ? "out of date"
+                                                          : juce::String (capturedSeconds, 1) + " s";
             break;
 
         case State::failed:
@@ -351,24 +332,13 @@ Editor::Report Editor::describeState() const
 void Editor::refresh()
 {
     report = describeState();
-
     voiceButton.setButtonText (describeLoadedVoice());
 
-    const auto isUsingARA = processorReference.isUsingARA();
-    auto& converter = processorReference.getInsertConverter();
-    const auto capturedSeconds = isUsingARA ? 0.0 : converter.getCapturedSeconds();
+    auto* modification = processorReference.isUsingARA() ? getFocusedModification() : nullptr;
 
-    convertButton.setVisible (! isUsingARA);
-    clearCaptureButton.setVisible (! isUsingARA);
-    convertButton.setEnabled (capturedSeconds > 0.0
-                              && processorReference.getVoiceLoader().getVoice() != nullptr);
-    clearCaptureButton.setEnabled (capturedSeconds > 0.0);
-
-    pitchCurveView.setConversion (isUsingARA
-                                      ? (getFocusedModification() != nullptr
-                                             ? getFocusedModification()->getConversion()
-                                             : nullptr)
-                                      : converter.getConversion());
+    pitchCurveView.setConversion (processorReference.isUsingARA()
+                                      ? (modification != nullptr ? modification->getConversion() : nullptr)
+                                      : processorReference.getInsertConverter().getConversion());
 
     pitchCurveView.setCaption (report.caption, report.isAlert);
     repaint();
@@ -382,11 +352,8 @@ void Editor::paintHeader (juce::Graphics& graphics, juce::Rectangle<int> bounds)
     graphics.setColour (Palette::bar);
     graphics.fillRect (bounds);
 
-    graphics.setColour (Palette::edge.withAlpha (0.6f));
-    graphics.fillRect (bounds.getX(), bounds.getY(), bounds.getWidth(), 1);
-
-    graphics.setColour (Palette::accent.withAlpha (0.55f));
-    graphics.fillRect (bounds.getX(), bounds.getBottom() - 1, bounds.getWidth(), 1);
+    graphics.setColour (Palette::accent);
+    graphics.fillRect (bounds.getX(), bounds.getBottom() - 2, bounds.getWidth(), 2);
 
     auto textBounds = bounds.reduced (Metrics::margin, 0).toFloat();
 
@@ -398,11 +365,10 @@ void Editor::paintHeader (juce::Graphics& graphics, juce::Rectangle<int> bounds)
                                        Metrics::tracking + 1.0f,
                                        Palette::text);
 
-    const auto titleWidth = PanelLookAndFeel::getTrackedTextWidth ("RVCARA",
-                                                                   TypeScale::title,
-                                                                   Metrics::tracking + 1.0f);
-
-    textBounds.removeFromLeft (titleWidth + 12.0f);
+    textBounds.removeFromLeft (PanelLookAndFeel::getTrackedTextWidth ("RVCARA",
+                                                                     TypeScale::title,
+                                                                     Metrics::tracking + 1.0f)
+                               + 12.0f);
 
     PanelLookAndFeel::drawTrackedText (graphics,
                                        processorReference.isUsingARA() ? "ARA" : "INSERT",
@@ -417,6 +383,7 @@ void Editor::paintFooter (juce::Graphics& graphics, juce::Rectangle<int> bounds)
 {
     graphics.setColour (Palette::bar);
     graphics.fillRect (bounds);
+
     graphics.setColour (Palette::rule);
     graphics.fillRect (bounds.getX(), bounds.getY(), bounds.getWidth(), 1);
 
@@ -427,10 +394,11 @@ void Editor::paintFooter (juce::Graphics& graphics, juce::Rectangle<int> bounds)
                                            : Palette::dimText;
 
     const auto lamp = juce::Rectangle<float> { textBounds.getX(), textBounds.getCentreY() - 3.0f, 6.0f, 6.0f };
+
     graphics.setColour (lampColour);
     graphics.fillEllipse (lamp);
 
-    textBounds.removeFromLeft (lamp.getWidth() + 8.0f);
+    textBounds.removeFromLeft (lamp.getWidth() + 9.0f);
 
     PanelLookAndFeel::drawTrackedText (graphics,
                                        report.status.toUpperCase(),
@@ -441,18 +409,13 @@ void Editor::paintFooter (juce::Graphics& graphics, juce::Rectangle<int> bounds)
                                        report.isAlert ? Palette::alert : Palette::text);
 
     if (report.detail.isNotEmpty())
-    {
-        const auto detailBounds = textBounds.withTrimmedRight (
-            static_cast<float> (processorReference.isUsingARA() ? 0 : 2 * buttonWidth + Metrics::gap));
-
         PanelLookAndFeel::drawTrackedText (graphics,
                                            report.detail.toUpperCase(),
-                                           detailBounds,
+                                           textBounds,
                                            juce::Justification::right,
                                            TypeScale::label,
                                            Metrics::tracking,
                                            Palette::dimText);
-    }
 
     if (report.isBusy && report.progress > 0.0f)
     {
@@ -476,17 +439,12 @@ void Editor::resized()
 {
     auto bounds = getLocalBounds();
 
-    auto headerBounds = bounds.removeFromTop (Metrics::headerHeight).reduced (Metrics::margin, 7);
-    bypassButton.setBounds (headerBounds.removeFromRight (bypassWidth));
-    headerBounds.removeFromRight (Metrics::gap);
+    auto headerBounds = bounds.removeFromTop (Metrics::headerHeight).reduced (Metrics::margin, 8);
     voiceButton.setBounds (headerBounds.removeFromRight (
         juce::jmin (voiceButtonWidth, headerBounds.getWidth())));
 
-    auto footerBounds = bounds.removeFromBottom (Metrics::footerHeight).reduced (Metrics::margin, 5);
-    clearCaptureButton.setBounds (footerBounds.removeFromRight (buttonWidth));
-    footerBounds.removeFromRight (Metrics::gap);
-    convertButton.setBounds (footerBounds.removeFromRight (buttonWidth));
-
+    bounds.removeFromBottom (Metrics::footerHeight);
     pitchCurveView.setBounds (bounds.reduced (Metrics::margin, Metrics::gap));
 }
-}
+
+} // namespace rvcara

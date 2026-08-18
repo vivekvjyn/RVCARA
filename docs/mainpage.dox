@@ -37,7 +37,7 @@ and includes are path-qualified so a file's dependencies name their layer.
 | `src/model/` | rvcara::VoiceModel, rvcara::ConversionEngine, rvcara::VoiceLoader, sessions, manifest |
 | `src/ara/` | rvcara::DocumentController, rvcara::PlaybackRenderer, rvcara::ConversionModification |
 | `src/insert/` | rvcara::InsertConverter |
-| `src/ui/` | rvcara::PanelLookAndFeel, rvcara::PitchCurveView |
+| `src/ui/` | rvcara::PanelLookAndFeel, rvcara::PitchCurveView, rvcara::PitchTrack |
 
 `dsp/`, `common/` and `model/` know nothing about ARA or plug-in formats, which is why the
 tests link them directly without instantiating a plug-in.
@@ -93,9 +93,21 @@ feature width loads without a plug-in release. The ONNX tensor names are read fr
 
 @section panel The panel
 
-A header naming the voice, the pitch display, and a footer reporting state. There are no
-knobs: the voice loads itself and the take converts itself. The parameters still exist and the
-host can automate every one, reached through the generic parameter view.
+A header carrying the model selector, the pitch editor, and a footer reporting state. The
+selector is the only control that changes what is rendered; the two scalers beside it scale
+the view, not the audio.
+
+The editor is laid out as a piano roll. A keyboard column is pinned to the left, a time ruler
+across the top, and a waveform lane along the bottom; between them the note grid scrolls on
+both axes, with one row per semitone from C2 to C6. Each sung note becomes a block on the row
+it centres on, and the pitch curve the model actually followed is drawn through it, so vibrato,
+scooping and a note that landed a semitone out are all visible against the row it should have
+sat on. The keyboard follows the vertical scroll and the ruler and waveform the horizontal one,
+so each stays pinned to the axis it labels. Opening a conversion centres the view on the sung
+range.
+
+There are no knobs. The parameters below still exist and the host can automate every one,
+reached through the generic parameter view.
 
 | Parameter | RVC name | What it does |
 | --- | --- | --- |
@@ -104,7 +116,7 @@ host can automate every one, reached through the generic parameter view.
 | Consonants | `protect` | Keeps unvoiced frames nearer the source features |
 | Dynamics | `rms_mix_rate` | Restores the source's loudness contour |
 | Variation | — | Seeds the vocoder's latent; changes the performance, not the notes |
-| Bypass | — | On the panel, beside the voice |
+| Bypass | — | Automation only |
 
 Consonant protection is inert for models whose pitch track is gap-filled, which is all of
 them; it is kept because it matches upstream. See rvcara::PitchEstimator.

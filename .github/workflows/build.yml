@@ -65,7 +65,7 @@ jobs:
             libxinerama-dev libxrandr-dev libxrender-dev libgl1-mesa-dev
 
       - name: Install Ninja
-        if: runner.os != 'Linux'
+        if: runner.os == 'macOS'
         uses: seanmiddleditch/gha-setup-ninja@v5
 
       - uses: actions/setup-python@v5
@@ -77,18 +77,23 @@ jobs:
         run: |
           workspace="$(pwd -W 2>/dev/null || pwd)"
 
-          if [ -e build/onnxruntime-install/lib ]; then
-            cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release \
-                  -DRVCARA_ONNXRUNTIME_ROOT="$workspace/build/onnxruntime-install"
+          if [ "$RUNNER_OS" = "Windows" ]; then
+            generator=(-G "Visual Studio 17 2022" -A x64)
           else
-            cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release
+            generator=(-G Ninja -DCMAKE_BUILD_TYPE=Release)
           fi
 
+          if [ -e build/onnxruntime-install/lib ]; then
+            generator+=(-DRVCARA_ONNXRUNTIME_ROOT="$workspace/build/onnxruntime-install")
+          fi
+
+          cmake -S . -B build "${generator[@]}"
+
       - name: Build ${{ matrix.formats }}
-        run: cmake --build build --parallel
+        run: cmake --build build --config Release --parallel
 
       - name: Test
-        run: ctest --test-dir build --output-on-failure
+        run: ctest --test-dir build -C Release --output-on-failure
 
       - name: List what was built
         shell: bash

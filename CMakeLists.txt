@@ -298,7 +298,8 @@ set(RVCARA_PLUGIN_SOURCES
     src/ara/PlaybackRenderer.cpp
     src/insert/InsertConverter.cpp
     src/ui/PanelLookAndFeel.cpp
-    src/ui/PitchCurveView.cpp)
+    src/ui/PitchCurveView.cpp
+    src/ui/PitchTrack.cpp)
 
 target_sources(RVCARA PRIVATE ${RVCARA_PLUGIN_SOURCES})
 target_include_directories(RVCARA PRIVATE src)
