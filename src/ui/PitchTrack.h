@@ -9,9 +9,9 @@
 
 namespace rvcara
 {
-/** @brief The scrolling note grid: one row per semitone, the converted waveform drawn along the
-           pitch it was sung at, and the pitch curve through it. Its size follows the zoom, so the
-           viewport scrolls it.
+/** @brief The scrolling note grid: one row per semitone, the converted waveform on the middle C
+           line, and the pitch curve the model followed drawn across the rows. Its size follows the
+           zoom, so the viewport scrolls it.
 */
 class PitchTrack final : public juce::Component
 {
@@ -21,6 +21,9 @@ public:
     static constexpr int lowestNote = 36;
     static constexpr int highestNote = 84;
     static constexpr int numRows = highestNote - lowestNote + 1;
+
+    /** @brief The row the waveform is drawn on, which is middle C. */
+    static constexpr int waveformNote = 60;
 
     static constexpr float minimumPixelsPerSecond = 16.0f;
     static constexpr float maximumPixelsPerSecond = 320.0f;

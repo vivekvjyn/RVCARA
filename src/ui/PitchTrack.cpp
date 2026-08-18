@@ -12,7 +12,7 @@ namespace
     using Palette = PanelLookAndFeel::Palette;
     using Metrics = PanelLookAndFeel::Metrics;
 
-    constexpr float voiceThickness = 2.6f;
+    constexpr float waveformRows = 4.0f;
 
     bool isBlackKey (int midiNote)
     {
@@ -58,26 +58,24 @@ double PitchTrack::getSeconds() const
 
 int PitchTrack::getCentreNote() const
 {
-    if (conversion == nullptr)
-        return (lowestNote + highestNote) / 2;
+    auto lowest = waveformNote;
+    auto highest = waveformNote;
 
-    auto lowest = highestNote;
-    auto highest = lowestNote;
-    auto isVoiced = false;
-
-    for (const auto frequencyHz : conversion->fundamentalFrequencyHz)
+    if (conversion != nullptr)
     {
-        if (frequencyHz <= 0.0f)
-            continue;
+        for (const auto frequencyHz : conversion->fundamentalFrequencyHz)
+        {
+            if (frequencyHz <= 0.0f)
+                continue;
 
-        const auto midiNote = juce::jlimit (lowestNote, highestNote,
-                                            juce::roundToInt (toMidiNote (frequencyHz)));
-        lowest = std::min (lowest, midiNote);
-        highest = std::max (highest, midiNote);
-        isVoiced = true;
+            const auto midiNote = juce::jlimit (lowestNote, highestNote,
+                                                juce::roundToInt (toMidiNote (frequencyHz)));
+            lowest = std::min (lowest, midiNote);
+            highest = std::max (highest, midiNote);
+        }
     }
 
-    return isVoiced ? (lowest + highest) / 2 : (lowestNote + highestNote) / 2;
+    return (lowest + highest) / 2;
 }
 
 juce::Point<int> PitchTrack::getPreferredSize (int minimumWidth) const
@@ -188,62 +186,28 @@ void PitchTrack::paintTimeGrid (juce::Graphics& graphics) const
 
 void PitchTrack::paintVoice (juce::Graphics& graphics) const
 {
-    if (conversion == nullptr || amplitude.empty())
+    if (amplitude.empty())
         return;
 
-    const auto& track = conversion->fundamentalFrequencyHz;
-    const auto numFrames = std::min (static_cast<int> (track.size()), static_cast<int> (amplitude.size()));
-    const auto halfHeight = rowHeight * voiceThickness * 0.5f;
+    const auto centre = getRowCentre (waveformNote);
+    const auto halfHeight = rowHeight * waveformRows * 0.5f;
+    const auto numFrames = static_cast<int> (amplitude.size());
 
     juce::Path ribbon;
-    std::vector<juce::Point<float>> upper;
-    std::vector<juce::Point<float>> lower;
-
-    const auto flush = [&]
-    {
-        if (upper.size() < 2)
-        {
-            upper.clear();
-            lower.clear();
-            return;
-        }
-
-        ribbon.clear();
-        ribbon.startNewSubPath (upper.front());
-
-        for (std::size_t index = 1; index < upper.size(); ++index)
-            ribbon.lineTo (upper[index]);
-
-        for (auto point = lower.rbegin(); point != lower.rend(); ++point)
-            ribbon.lineTo (*point);
-
-        ribbon.closeSubPath();
-
-        graphics.setColour (Palette::noteBlock);
-        graphics.fillPath (ribbon);
-
-        upper.clear();
-        lower.clear();
-    };
+    ribbon.startNewSubPath (getXForFrame (0), centre);
 
     for (int frameIndex = 0; frameIndex < numFrames; ++frameIndex)
-    {
-        const auto y = getYForFrequency (track[static_cast<std::size_t> (frameIndex)]);
+        ribbon.lineTo (getXForFrame (frameIndex),
+                       centre - amplitude[static_cast<std::size_t> (frameIndex)] * halfHeight);
 
-        if (! y.has_value())
-        {
-            flush();
-            continue;
-        }
+    for (int frameIndex = numFrames - 1; frameIndex >= 0; --frameIndex)
+        ribbon.lineTo (getXForFrame (frameIndex),
+                       centre + amplitude[static_cast<std::size_t> (frameIndex)] * halfHeight);
 
-        const auto x = getXForFrame (frameIndex);
-        const auto reach = std::max (amplitude[static_cast<std::size_t> (frameIndex)] * halfHeight, 0.5f);
+    ribbon.closeSubPath();
 
-        upper.push_back ({ x, *y - reach });
-        lower.push_back ({ x, *y + reach });
-    }
-
-    flush();
+    graphics.setColour (Palette::noteBlock);
+    graphics.fillPath (ribbon);
 }
 
 void PitchTrack::paintCurve (juce::Graphics& graphics) const
