@@ -133,7 +133,12 @@ ConversionSettings Processor::getSettingsFromParameters() const
 bool Processor::hasAssignedRegions() const
 {
     if (auto* playbackRenderer = getPlaybackRenderer<juce::ARAPlaybackRenderer>())
-        return ! playbackRenderer->getPlaybackRegions().empty();
+        if (! playbackRenderer->getPlaybackRegions().empty())
+            return true;
+
+    if (auto* editorRenderer = getEditorRenderer<juce::ARAEditorRenderer>())
+        if (! editorRenderer->getPlaybackRegions().empty())
+            return true;
 
     return false;
 }

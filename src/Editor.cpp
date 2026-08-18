@@ -198,11 +198,10 @@ Editor::Report Editor::describeModification() const
 
     if (! processorReference.hasAssignedRegions())
     {
-        result.status = "Not routed";
-        result.caption = "The host has bound RVCARA to ARA but has given this instance no audio "
-                         "to render, so the track passes through unchanged.\n"
-                         "In most hosts that means ARA is not switched on for the clip.";
-        result.isAlert = true;
+        result.status = "Waiting for host";
+        result.caption = "The clip has not been handed to this instance yet, so the track plays "
+                         "unchanged for now.\n"
+                         "If it stays this way, switch ARA on for the clip in your host.";
         return result;
     }
 
@@ -210,8 +209,9 @@ Editor::Report Editor::describeModification() const
 
     if (modification == nullptr)
     {
-        result.status = "No region";
-        result.caption = "Add RVCARA to a track with audio on it.";
+        result.status = "Waiting for host";
+        result.caption = "The clip has not been handed to this instance yet, so the track plays "
+                         "unchanged for now.";
         return result;
     }
 
