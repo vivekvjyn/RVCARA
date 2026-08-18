@@ -7,11 +7,14 @@
 #include <juce_audio_processors/juce_audio_processors.h>
 
 #include <atomic>
+#include <map>
 #include <memory>
 #include <vector>
 
 namespace rvcara
 {
+class PlaybackRenderer;
+
 /** @brief Owns the ARA model, the voice, the render pool and the processing lock. */
 class DocumentController final : public juce::ARADocumentControllerSpecialisation,
                                 private VoiceLoader::Listener
@@ -39,6 +42,23 @@ public:
     [[nodiscard]] bool isLoadingVoice() const noexcept { return loader.isLoading(); }
 
     void requestVoice (const juce::String& name);
+
+    /** @brief Tells the controller which rate a renderer has been prepared at.
+        @param renderer    The renderer reporting the rate.
+        @param sampleRate  The rate the host prepared it at.
+    */
+    void setSessionSampleRate (const PlaybackRenderer* renderer, double sampleRate);
+
+    /** @brief Drops a renderer's contribution to the session rate.
+        @param renderer  The renderer being destroyed.
+    */
+    void forgetRenderer (const PlaybackRenderer* renderer);
+
+    /** @brief The rate conversions are rendered at, or zero until a renderer reports one. */
+    [[nodiscard]] double getSessionSampleRate() const noexcept
+    {
+        return sessionSampleRate.load (std::memory_order_acquire);
+    }
 
     void requestRender (ConversionModification& modification);
 
@@ -91,6 +111,10 @@ private:
 
     mutable juce::CriticalSection jobLock;
     std::map<ConversionModification*, RenderJob*> activeJobs;
+
+    mutable juce::CriticalSection rateLock;
+    std::map<const PlaybackRenderer*, double> rendererSampleRates;
+    std::atomic<double> sessionSampleRate { 0.0 };
 
     juce::ListenerList<Listener> listeners;
 

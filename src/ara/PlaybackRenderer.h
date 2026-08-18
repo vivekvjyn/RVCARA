@@ -16,6 +16,8 @@ class PlaybackRenderer final : public juce::ARAPlaybackRenderer
 public:
     PlaybackRenderer (ARA::PlugIn::DocumentController* documentController, DocumentController& owner);
 
+    ~PlaybackRenderer() override;
+
     void prepareToPlay (double sampleRate,
                         int maximumSamplesPerBlock,
                         int numChannels,

@@ -32,11 +32,12 @@ void ConversionModification::clearConversion()
     conversion.reset();
 }
 
-bool ConversionModification::isConversionCurrent() const noexcept
+bool ConversionModification::isConversionCurrent (double sampleRate) const noexcept
 {
     return conversion != nullptr
         && conversion->voiceName == voiceName
-        && conversion->settings == settings;
+        && conversion->settings == settings
+        && juce::approximatelyEqual (conversion->sampleRate, sampleRate);
 }
 
 juce::String ConversionModification::getError() const

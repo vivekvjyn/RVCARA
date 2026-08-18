@@ -488,9 +488,14 @@ ConversionEngine::Result ConversionEngine::convert (const Request& request,
     if (shouldAbort.load())
         return result;
 
-    const SincResampler toSourceRate { static_cast<double> (manifest.modelSampleRate), request.sampleRate };
-    result.samples = toSourceRate.process (rendered.data(), static_cast<int> (rendered.size()));
-    result.samples.resize (static_cast<std::size_t> (request.numSamples), 0.0f);
+    const auto outputSampleRate = request.outputSampleRate > 0.0 ? request.outputSampleRate
+                                                                 : request.sampleRate;
+
+    const SincResampler toOutputRate { static_cast<double> (manifest.modelSampleRate), outputSampleRate };
+    result.samples = toOutputRate.process (rendered.data(), static_cast<int> (rendered.size()));
+
+    result.samples.resize (static_cast<std::size_t> (std::llround (
+        static_cast<double> (request.numSamples) * outputSampleRate / request.sampleRate)), 0.0f);
 
     const auto pitchPaddingFrames = contextPadding / hopSize;
     const auto numRegionFrames = std::max (0, numFrames - 2 * pitchPaddingFrames);

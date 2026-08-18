@@ -69,13 +69,6 @@ public:
 
     [[nodiscard]] VoiceLoader& getVoiceLoader() noexcept;
 
-    /** @brief Returns true when the host has given this instance regions to render.
-
-        False while bound to ARA means the host is not routing audio through the plug-in, so the
-        track passes through unchanged however finished the conversion is.
-    */
-    [[nodiscard]] bool hasAssignedRegions() const;
-
     [[nodiscard]] bool isUsingARA() const { return getConversionDocumentController() != nullptr; }
 
 private:

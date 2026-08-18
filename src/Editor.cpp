@@ -26,11 +26,6 @@ namespace
     const char* bypassCaption = "The Bypass parameter is on, so RVCARA is passing the source "
                                 "through unchanged.\nTurn it off in the host's parameter list.";
 
-    juce::String describeRate (double sampleRate)
-    {
-        return juce::String (sampleRate / 1000.0, 1) + " kHz";
-    }
-
     juce::String describeEntry (const VoiceModelLibrary::Entry& entry)
     {
         auto description = entry.name;
@@ -196,22 +191,11 @@ Editor::Report Editor::describeModification() const
         return result;
     }
 
-    if (! processorReference.hasAssignedRegions())
-    {
-        result.status = "Waiting for host";
-        result.caption = "The clip has not been handed to this instance yet, so the track plays "
-                         "unchanged for now.\n"
-                         "If it stays this way, switch ARA on for the clip in your host.";
-        return result;
-    }
-
     auto* modification = getFocusedModification();
 
     if (modification == nullptr)
     {
-        result.status = "Waiting for host";
-        result.caption = "The clip has not been handed to this instance yet, so the track plays "
-                         "unchanged for now.";
+        result.status = "Ready";
         return result;
     }
 
@@ -221,22 +205,6 @@ Editor::Report Editor::describeModification() const
         result.caption = "No model installed.\nPut an exported voice in\n"
                        + VoiceModelLibrary::getUserModelDirectory().getFullPathName();
         return result;
-    }
-
-    if (auto* audioSource = modification->getAudioSource())
-    {
-        const auto sourceRate = audioSource->getSampleRate();
-        const auto sessionRate = processorReference.getSampleRate();
-
-        if (sourceRate > 0.0 && sessionRate > 0.0 && ! juce::approximatelyEqual (sourceRate, sessionRate))
-        {
-            result.status = "Rate mismatch";
-            result.caption = "This region's audio is " + describeRate (sourceRate)
-                           + " but the session runs at " + describeRate (sessionRate) + ".\n"
-                             "RVCARA plays the source unchanged until they match.";
-            result.isAlert = true;
-            return result;
-        }
     }
 
     if (modification->getSettings().isBypassed)
@@ -269,7 +237,7 @@ Editor::Report Editor::describeModification() const
         case State::ready:
             result.status = "Converted";
 
-            if (! modification->isConversionCurrent())
+            if (! modification->isConversionCurrent (documentController->getSessionSampleRate()))
                 result.detail = "out of date";
 
             break;

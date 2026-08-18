@@ -13,11 +13,13 @@ class DocumentController::RenderJob final : public juce::ThreadPoolJob
 public:
     RenderJob (DocumentController& ownerToUse,
                ConversionModification& modificationToUse,
-               std::shared_ptr<const VoiceModel> voiceToUse)
+               std::shared_ptr<const VoiceModel> voiceToUse,
+               double outputSampleRateToUse)
         : juce::ThreadPoolJob ("convert " + juce::String (modificationToUse.getPersistentID())),
           owner (ownerToUse),
           modification (modificationToUse),
-          voice (std::move (voiceToUse))
+          voice (std::move (voiceToUse)),
+          outputSampleRate (outputSampleRateToUse)
     {
     }
 
@@ -86,6 +88,7 @@ public:
         request.samples = mono.data();
         request.numSamples = numSamples;
         request.sampleRate = audioSource->getSampleRate();
+        request.outputSampleRate = outputSampleRate;
         request.settings = modification.getSettings();
 
         auto outcome = converter.convert (
@@ -109,6 +112,7 @@ public:
         result->samples = std::move (outcome.samples);
         result->fundamentalFrequencyHz = std::move (outcome.fundamentalFrequencyHz);
         result->pitchFrameRate = outcome.pitchFrameRate;
+        result->sampleRate = outputSampleRate;
         result->settings = request.settings;
         result->voiceName = voice->getName();
 
@@ -130,6 +134,7 @@ private:
     DocumentController& owner;
     ConversionModification& modification;
     std::shared_ptr<const VoiceModel> voice;
+    double outputSampleRate;
     std::atomic<bool> shouldAbort { false };
 };
 
@@ -229,9 +234,17 @@ void DocumentController::requestRender (ConversionModification& modification)
         return;
     }
 
+    const auto sessionRate = getSessionSampleRate();
+
+    if (sessionRate <= 0.0)
+    {
+        modification.setState (ConversionModification::State::queued);
+        return;
+    }
+
     cancelRender (modification);
 
-    auto* job = new RenderJob { *this, modification, std::move (voice) };
+    auto* job = new RenderJob { *this, modification, std::move (voice), sessionRate };
 
     {
         const juce::ScopedLock lock { jobLock };
@@ -247,9 +260,44 @@ void DocumentController::requestRender (ConversionModification& modification)
 
 void DocumentController::requestRenderForAllStaleModifications()
 {
+    const auto sessionRate = getSessionSampleRate();
+
     for (auto* modification : getModifications())
-        if (! modification->isConversionCurrent())
+        if (! modification->isConversionCurrent (sessionRate))
             requestRender (*modification);
+}
+
+void DocumentController::setSessionSampleRate (const PlaybackRenderer* renderer, double sampleRate)
+{
+    const auto unanimousRate = [&]
+    {
+        const juce::ScopedLock lock { rateLock };
+        rendererSampleRates[renderer] = sampleRate;
+
+        const auto first = rendererSampleRates.begin()->second;
+
+        for (const auto& [ignored, rate] : rendererSampleRates)
+            if (! juce::approximatelyEqual (rate, first))
+                return 0.0;
+
+        return first;
+    }();
+
+    if (unanimousRate <= 0.0 || juce::approximatelyEqual (unanimousRate, getSessionSampleRate()))
+        return;
+
+    sessionSampleRate.store (unanimousRate, std::memory_order_release);
+
+    if (juce::MessageManager::getInstanceWithoutCreating() == nullptr)
+        return;
+
+    juce::MessageManager::callAsync ([this] { requestRenderForAllStaleModifications(); });
+}
+
+void DocumentController::forgetRenderer (const PlaybackRenderer* renderer)
+{
+    const juce::ScopedLock lock { rateLock };
+    rendererSampleRates.erase (renderer);
 }
 
 void DocumentController::applySettings (ConversionModification& modification,
@@ -361,8 +409,10 @@ void DocumentController::didEnableAudioSourceSamplesAccess (juce::ARAAudioSource
     if (! enable || audioSource == nullptr)
         return;
 
+    const auto sessionRate = getSessionSampleRate();
+
     for (auto* modification : audioSource->getAudioModifications<ConversionModification>())
-        if (! modification->isConversionCurrent())
+        if (! modification->isConversionCurrent (sessionRate))
             requestRender (*modification);
 }
 

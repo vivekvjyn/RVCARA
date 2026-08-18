@@ -61,6 +61,7 @@ public:
         result->samples = std::move (outcome.samples);
         result->fundamentalFrequencyHz = std::move (outcome.fundamentalFrequencyHz);
         result->pitchFrameRate = outcome.pitchFrameRate;
+        result->sampleRate = sampleRate;
         result->settings = settings;
         result->voiceName = voice->getName();
 

@@ -23,6 +23,10 @@ public:
         const float* samples { nullptr };
         int numSamples { 0 };
         double sampleRate { 44100.0 };
+
+        /** @brief The rate to render at. Zero renders at @ref sampleRate. */
+        double outputSampleRate { 0.0 };
+
         ConversionSettings settings;
     };
 

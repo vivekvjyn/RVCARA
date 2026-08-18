@@ -19,6 +19,11 @@ PlaybackRenderer::PlaybackRenderer (ARA::PlugIn::DocumentController* documentCon
 {
 }
 
+PlaybackRenderer::~PlaybackRenderer()
+{
+    owner.forgetRenderer (this);
+}
+
 void PlaybackRenderer::prepareToPlay (double sampleRate,
                                       int maximumSamplesPerBlock,
                                       int,
@@ -27,6 +32,8 @@ void PlaybackRenderer::prepareToPlay (double sampleRate,
 {
     hostSampleRate = sampleRate;
     isAlwaysNonRealtime = alwaysNonRealtime == AlwaysNonRealtime::yes;
+
+    owner.setSessionSampleRate (this, sampleRate);
 
     sourceReaders.clear();
 
@@ -114,6 +121,10 @@ bool PlaybackRenderer::processBlock (juce::AudioBuffer<float>& buffer,
     {
         auto* modification = playbackRegion->getAudioModification<ConversionModification>();
         auto* audioSource = modification->getAudioSource();
+        const auto sourceSampleRate = audioSource->getSampleRate();
+
+        if (sourceSampleRate <= 0.0)
+            continue;
 
         const auto playbackRange =
             playbackRegion->getSampleRange (hostSampleRate, juce::ARAPlaybackRegion::IncludeHeadAndTail::no);
@@ -123,8 +134,10 @@ bool PlaybackRenderer::processBlock (juce::AudioBuffer<float>& buffer,
         if (renderRange.isEmpty())
             continue;
 
-        const juce::Range<juce::int64> modificationRange { playbackRegion->getStartInAudioModificationSamples(),
-                                                           playbackRegion->getEndInAudioModificationSamples() };
+        const juce::Range<juce::int64> modificationRange {
+            ARA::samplePositionAtTime (playbackRegion->getStartInAudioModificationTime(), hostSampleRate),
+            ARA::samplePositionAtTime (playbackRegion->getEndInAudioModificationTime(), hostSampleRate) };
+
         const auto modificationOffset = modificationRange.getStart() - playbackRange.getStart();
 
         renderRange = renderRange.getIntersectionWith (
@@ -133,24 +146,28 @@ bool PlaybackRenderer::processBlock (juce::AudioBuffer<float>& buffer,
         if (renderRange.isEmpty())
             continue;
 
-        const auto ratesMatch = audioSource->getSampleRate() == hostSampleRate;
-
         const auto numSamplesToRead = static_cast<int> (renderRange.getLength());
         const auto startInBuffer = static_cast<int> (renderRange.getStart() - blockRange.getStart());
-        const auto startInSource = renderRange.getStart() + modificationOffset;
+        const auto startInConversion = renderRange.getStart() + modificationOffset;
+        const auto startInSource = ARA::samplePositionAtTime (
+            static_cast<double> (startInConversion) / hostSampleRate, sourceSampleRate);
 
         auto renderedFromConversion = false;
 
-        if (ratesMatch && ! modification->getSettings().isBypassed)
+        if (! modification->getSettings().isBypassed)
         {
-            if (const auto conversion = modification->getConversion())
+            const auto conversion = modification->getConversion();
+
+            if (conversion != nullptr
+                && startInConversion >= 0
+                && juce::approximatelyEqual (conversion->sampleRate, hostSampleRate))
             {
-                const auto available = conversion->getNumSamples() - static_cast<int> (startInSource);
+                const auto available = conversion->getNumSamples() - static_cast<int> (startInConversion);
                 const auto numToCopy = std::min (numSamplesToRead, std::max (available, 0));
 
                 if (numToCopy > 0)
                 {
-                    const auto* source = conversion->samples.data() + startInSource;
+                    const auto* source = conversion->samples.data() + startInConversion;
 
                     for (int channelIndex = 0; channelIndex < buffer.getNumChannels(); ++channelIndex)
                         buffer.copyFrom (channelIndex, startInBuffer, source, numToCopy);

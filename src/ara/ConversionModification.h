@@ -17,6 +17,8 @@ struct ConversionResult
     std::vector<float> fundamentalFrequencyHz;
     double pitchFrameRate { 100.0 };
 
+    double sampleRate { 0.0 };
+
     ConversionSettings settings;
     juce::String voiceName;
 
@@ -54,7 +56,11 @@ public:
 
     void clearConversion();
 
-    [[nodiscard]] bool isConversionCurrent() const noexcept;
+    /** @brief Whether the cached conversion still matches the voice, the settings and the rate.
+        @param sampleRate  The rate the conversion must have been rendered at to be playable.
+        @return True when the cache may be served without re-rendering.
+    */
+    [[nodiscard]] bool isConversionCurrent (double sampleRate) const noexcept;
 
     [[nodiscard]] State getState() const noexcept { return state.load (std::memory_order_acquire); }
     void setState (State newState) noexcept { state.store (newState, std::memory_order_release); }
