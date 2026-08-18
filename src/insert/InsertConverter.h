@@ -68,6 +68,18 @@ public:
         return reachedLimit.load (std::memory_order_relaxed);
     }
 
+    /** @brief Returns true once any audio has reached the plug-in. */
+    [[nodiscard]] bool hasReceivedAudio() const noexcept
+    {
+        return receivedAudio.load (std::memory_order_relaxed);
+    }
+
+    /** @brief Returns true once the host has given a transport position to align against. */
+    [[nodiscard]] bool hasHostTimeline() const noexcept
+    {
+        return sawTransport.load (std::memory_order_relaxed);
+    }
+
 private:
     void timerCallback() override;
 
@@ -88,6 +100,8 @@ private:
     std::atomic<int> lastCapturedSample { 0 };
     std::atomic<bool> hasNewAudio { false };
     std::atomic<bool> reachedLimit { false };
+    std::atomic<bool> receivedAudio { false };
+    std::atomic<bool> sawTransport { false };
 
     std::atomic<juce::uint32> lastCaptureTimeMs { 0 };
 

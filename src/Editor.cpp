@@ -274,6 +274,16 @@ Editor::Report Editor::describeCapture() const
         return result;
     }
 
+    if (converter.hasReceivedAudio() && ! converter.hasHostTimeline())
+    {
+        result.status = "No timeline";
+        result.caption = "This host gives RVCARA no transport position, so a take cannot be "
+                         "captured and played back in place.\n"
+                         "Load it in a DAW, on a track with audio on it.";
+        result.isAlert = true;
+        return result;
+    }
+
     const auto capturedSeconds = converter.getCapturedSeconds();
     result.progress = converter.getProgress();
 

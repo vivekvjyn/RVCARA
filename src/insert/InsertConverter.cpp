@@ -202,10 +202,14 @@ void InsertConverter::process (juce::AudioBuffer<float>& buffer,
     if (numCaptureSamples == 0 || numSamples <= 0)
         return;
 
+    receivedAudio.store (true, std::memory_order_relaxed);
+
     const auto position = positionInfo.getTimeInSamples();
 
     if (! position.hasValue())
         return;
+
+    sawTransport.store (true, std::memory_order_relaxed);
 
     const auto songPosition = *position;
 
