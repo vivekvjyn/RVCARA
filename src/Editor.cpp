@@ -23,6 +23,11 @@ namespace
 
     const char* qualifierGap = "   ";
 
+    juce::String describeRate (double sampleRate)
+    {
+        return juce::String (sampleRate / 1000.0, 1) + " kHz";
+    }
+
     juce::String describeEntry (const VoiceModelLibrary::Entry& entry)
     {
         auto description = entry.name;
@@ -203,6 +208,22 @@ Editor::Report Editor::describeModification() const
         result.caption = "No model installed.\nPut an exported voice in\n"
                        + VoiceModelLibrary::getUserModelDirectory().getFullPathName();
         return result;
+    }
+
+    if (auto* audioSource = modification->getAudioSource())
+    {
+        const auto sourceRate = audioSource->getSampleRate();
+        const auto sessionRate = processorReference.getSampleRate();
+
+        if (sourceRate > 0.0 && sessionRate > 0.0 && ! juce::approximatelyEqual (sourceRate, sessionRate))
+        {
+            result.status = "Rate mismatch";
+            result.caption = "This region's audio is " + describeRate (sourceRate)
+                           + " but the session runs at " + describeRate (sessionRate) + ".\n"
+                             "RVCARA plays the source unchanged until they match.";
+            result.isAlert = true;
+            return result;
+        }
     }
 
     result.progress = modification->getProgress();
