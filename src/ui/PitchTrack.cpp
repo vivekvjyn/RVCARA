@@ -12,7 +12,7 @@ namespace
     using Palette = PanelLookAndFeel::Palette;
     using Metrics = PanelLookAndFeel::Metrics;
 
-    constexpr int shortestSegmentInFrames = 3;
+    constexpr float voiceThickness = 2.6f;
 
     bool isBlackKey (int midiNote)
     {
@@ -58,19 +58,26 @@ double PitchTrack::getSeconds() const
 
 int PitchTrack::getCentreNote() const
 {
-    if (segments.empty())
+    if (conversion == nullptr)
         return (lowestNote + highestNote) / 2;
 
     auto lowest = highestNote;
     auto highest = lowestNote;
+    auto isVoiced = false;
 
-    for (const auto& segment : segments)
+    for (const auto frequencyHz : conversion->fundamentalFrequencyHz)
     {
-        lowest = std::min (lowest, segment.midiNote);
-        highest = std::max (highest, segment.midiNote);
+        if (frequencyHz <= 0.0f)
+            continue;
+
+        const auto midiNote = juce::jlimit (lowestNote, highestNote,
+                                            juce::roundToInt (toMidiNote (frequencyHz)));
+        lowest = std::min (lowest, midiNote);
+        highest = std::max (highest, midiNote);
+        isVoiced = true;
     }
 
-    return (lowest + highest) / 2;
+    return isVoiced ? (lowest + highest) / 2 : (lowestNote + highestNote) / 2;
 }
 
 juce::Point<int> PitchTrack::getPreferredSize (int minimumWidth) const
@@ -108,44 +115,41 @@ float PitchTrack::getXForFrame (int frameIndex) const
 
 void PitchTrack::rebuild()
 {
-    segments.clear();
+    amplitude.clear();
 
-    if (conversion == nullptr)
+    if (conversion == nullptr || conversion->samples.empty() || conversion->pitchFrameRate <= 0.0)
         return;
 
-    const auto& track = conversion->fundamentalFrequencyHz;
-    auto firstFrame = -1;
-    auto sumOfNotes = 0.0f;
+    const auto numFrames = static_cast<int> (conversion->fundamentalFrequencyHz.size());
+    const auto samplesPerFrame = conversion->sampleRate > 0.0
+                               ? conversion->sampleRate / conversion->pitchFrameRate
+                               : static_cast<double> (conversion->samples.size()) / std::max (numFrames, 1);
 
-    for (int frameIndex = 0; frameIndex <= static_cast<int> (track.size()); ++frameIndex)
+    amplitude.resize (static_cast<std::size_t> (numFrames), 0.0f);
+
+    const auto numSamples = static_cast<int> (conversion->samples.size());
+    auto loudest = 0.0f;
+
+    for (int frameIndex = 0; frameIndex < numFrames; ++frameIndex)
     {
-        const auto isVoiced = frameIndex < static_cast<int> (track.size())
-                           && track[static_cast<std::size_t> (frameIndex)] > 0.0f;
+        const auto first = static_cast<int> (static_cast<double> (frameIndex) * samplesPerFrame);
+        const auto last = std::min (static_cast<int> (static_cast<double> (frameIndex + 1) * samplesPerFrame),
+                                    numSamples);
 
-        if (isVoiced)
-        {
-            if (firstFrame < 0)
-            {
-                firstFrame = frameIndex;
-                sumOfNotes = 0.0f;
-            }
+        auto peak = 0.0f;
 
-            sumOfNotes += toMidiNote (track[static_cast<std::size_t> (frameIndex)]);
-            continue;
-        }
+        for (int sampleIndex = std::max (first, 0); sampleIndex < last; ++sampleIndex)
+            peak = std::max (peak, std::abs (conversion->samples[static_cast<std::size_t> (sampleIndex)]));
 
-        if (firstFrame >= 0)
-        {
-            const auto numFrames = frameIndex - firstFrame;
-
-            if (numFrames >= shortestSegmentInFrames)
-                segments.push_back ({ firstFrame,
-                                      frameIndex - 1,
-                                      juce::roundToInt (sumOfNotes / static_cast<float> (numFrames)) });
-
-            firstFrame = -1;
-        }
+        amplitude[static_cast<std::size_t> (frameIndex)] = peak;
+        loudest = std::max (loudest, peak);
     }
+
+    if (loudest <= 0.0f)
+        return;
+
+    for (auto& peak : amplitude)
+        peak /= loudest;
 }
 
 void PitchTrack::paintRows (juce::Graphics& graphics) const
@@ -182,25 +186,64 @@ void PitchTrack::paintTimeGrid (juce::Graphics& graphics) const
     }
 }
 
-void PitchTrack::paintSegments (juce::Graphics& graphics) const
+void PitchTrack::paintVoice (juce::Graphics& graphics) const
 {
-    for (const auto& segment : segments)
-    {
-        const auto left = getXForFrame (segment.firstFrame);
-        const auto right = getXForFrame (segment.lastFrame + 1);
-        const auto centre = getRowCentre (segment.midiNote);
+    if (conversion == nullptr || amplitude.empty())
+        return;
 
-        const juce::Rectangle<float> block { left,
-                                             centre - rowHeight * 0.42f,
-                                             std::max (right - left, 2.0f),
-                                             rowHeight * 0.84f };
+    const auto& track = conversion->fundamentalFrequencyHz;
+    const auto numFrames = std::min (static_cast<int> (track.size()), static_cast<int> (amplitude.size()));
+    const auto halfHeight = rowHeight * voiceThickness * 0.5f;
+
+    juce::Path ribbon;
+    std::vector<juce::Point<float>> upper;
+    std::vector<juce::Point<float>> lower;
+
+    const auto flush = [&]
+    {
+        if (upper.size() < 2)
+        {
+            upper.clear();
+            lower.clear();
+            return;
+        }
+
+        ribbon.clear();
+        ribbon.startNewSubPath (upper.front());
+
+        for (std::size_t index = 1; index < upper.size(); ++index)
+            ribbon.lineTo (upper[index]);
+
+        for (auto point = lower.rbegin(); point != lower.rend(); ++point)
+            ribbon.lineTo (*point);
+
+        ribbon.closeSubPath();
 
         graphics.setColour (Palette::noteBlock);
-        graphics.fillRect (block);
+        graphics.fillPath (ribbon);
 
-        graphics.setColour (Palette::accent.withAlpha (0.75f));
-        graphics.drawRect (block, Metrics::hairline);
+        upper.clear();
+        lower.clear();
+    };
+
+    for (int frameIndex = 0; frameIndex < numFrames; ++frameIndex)
+    {
+        const auto y = getYForFrequency (track[static_cast<std::size_t> (frameIndex)]);
+
+        if (! y.has_value())
+        {
+            flush();
+            continue;
+        }
+
+        const auto x = getXForFrame (frameIndex);
+        const auto reach = std::max (amplitude[static_cast<std::size_t> (frameIndex)] * halfHeight, 0.5f);
+
+        upper.push_back ({ x, *y - reach });
+        lower.push_back ({ x, *y + reach });
     }
+
+    flush();
 }
 
 void PitchTrack::paintCurve (juce::Graphics& graphics) const
@@ -245,7 +288,7 @@ void PitchTrack::paint (juce::Graphics& graphics)
 
     paintRows (graphics);
     paintTimeGrid (graphics);
-    paintSegments (graphics);
+    paintVoice (graphics);
     paintCurve (graphics);
 }
 

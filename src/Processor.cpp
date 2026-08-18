@@ -15,6 +15,8 @@ namespace
 
     constexpr auto minimumLatentNoiseSeed = 1;
     constexpr auto maximumLatentNoiseSeed = 9999;
+
+    constexpr int settleMilliseconds = 150;
 }
 
 juce::AudioProcessorValueTreeState::ParameterLayout Processor::createParameterLayout()
@@ -83,6 +85,9 @@ Processor::Processor()
 
 Processor::~Processor()
 {
+    cancelPendingUpdate();
+    stopTimer();
+
     for (const auto* parameterId : { ParameterId::pitchShiftSemitones,
                                      ParameterId::retrievalRatio,
                                      ParameterId::consonantProtection,
@@ -168,6 +173,22 @@ std::vector<ConversionModification*> Processor::getEditableModifications() const
 }
 
 void Processor::parameterChanged (const juce::String&, float)
+{
+    triggerAsyncUpdate();
+}
+
+void Processor::handleAsyncUpdate()
+{
+    startTimer (settleMilliseconds);
+}
+
+void Processor::timerCallback()
+{
+    stopTimer();
+    applySettings();
+}
+
+void Processor::applySettings()
 {
     const auto settings = getSettingsFromParameters();
 

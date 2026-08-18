@@ -32,6 +32,9 @@ public:
 
     using juce::ARAPlaybackRenderer::processBlock;
 
+protected:
+    void didAddPlaybackRegion (ARA::PlugIn::PlaybackRegion* playbackRegion) noexcept override;
+
 private:
     struct SourceReader
     {
@@ -44,6 +47,8 @@ private:
                 buffering->setReadTimeout (milliseconds);
         }
     };
+
+    void createSourceReader (juce::ARAAudioSource* audioSource);
 
     bool renderSourceAudio (juce::ARAPlaybackRegion& playbackRegion,
                             juce::AudioBuffer<float>& buffer,
@@ -69,6 +74,7 @@ private:
     std::map<juce::ARAAudioSource*, SourceReader> sourceReaders;
 
     double hostSampleRate { 48000.0 };
+    int maximumBlockSize { 0 };
     bool isAlwaysNonRealtime { false };
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (PlaybackRenderer)

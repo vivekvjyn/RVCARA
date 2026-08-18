@@ -19,6 +19,9 @@ struct ConversionResult
 
     double sampleRate { 0.0 };
 
+    /** @brief True while this covers only the start of the region, with more still rendering. */
+    bool isPartial { false };
+
     ConversionSettings settings;
     juce::String voiceName;
 

@@ -7,6 +7,7 @@
 #include <juce_audio_processors/juce_audio_processors.h>
 
 #include <atomic>
+#include <cstdint>
 #include <map>
 #include <memory>
 #include <vector>
@@ -99,7 +100,14 @@ protected:
 private:
     class RenderJob;
 
-    void completeRender (ConversionModification* modification, ConversionPointer conversion, juce::String error);
+    void completeRender (ConversionModification* modification,
+                         std::uint64_t generation,
+                         ConversionPointer conversion,
+                         juce::String error);
+
+    void publishPartialRender (ConversionModification* modification,
+                               std::uint64_t generation,
+                               ConversionPointer conversion);
 
     void notifyStateChanged();
 
@@ -109,8 +117,19 @@ private:
 
     VoiceLoader loader;
 
+    /** @brief The render in flight for one modification. The generation tells a message that
+               arrives late from one that is still current, without comparing job pointers the
+               pool may already have freed and reused.
+    */
+    struct ActiveJob
+    {
+        RenderJob* job { nullptr };
+        std::uint64_t generation { 0 };
+    };
+
     mutable juce::CriticalSection jobLock;
-    std::map<ConversionModification*, RenderJob*> activeJobs;
+    std::map<ConversionModification*, ActiveJob> activeJobs;
+    std::uint64_t nextGeneration { 1 };
 
     mutable juce::CriticalSection rateLock;
     std::map<const PlaybackRenderer*, double> rendererSampleRates;

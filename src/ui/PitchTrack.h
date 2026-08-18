@@ -9,8 +9,9 @@
 
 namespace rvcara
 {
-/** @brief The scrolling note grid: one row per semitone, a block per sung note, and the pitch
-           curve the model followed. Its size follows the zoom, so the viewport scrolls it.
+/** @brief The scrolling note grid: one row per semitone, the converted waveform drawn along the
+           pitch it was sung at, and the pitch curve through it. Its size follows the zoom, so the
+           viewport scrolls it.
 */
 class PitchTrack final : public juce::Component
 {
@@ -53,25 +54,18 @@ public:
     void paint (juce::Graphics& graphics) override;
 
 private:
-    struct Segment
-    {
-        int firstFrame;
-        int lastFrame;
-        int midiNote;
-    };
-
     [[nodiscard]] std::optional<float> getYForFrequency (float frequencyHz) const;
     [[nodiscard]] float getXForFrame (int frameIndex) const;
 
     void paintRows (juce::Graphics& graphics) const;
     void paintTimeGrid (juce::Graphics& graphics) const;
-    void paintSegments (juce::Graphics& graphics) const;
+    void paintVoice (juce::Graphics& graphics) const;
     void paintCurve (juce::Graphics& graphics) const;
 
     void rebuild();
 
     ConversionPointer conversion;
-    std::vector<Segment> segments;
+    std::vector<float> amplitude;
 
     float pixelsPerSecond { 78.0f };
     float rowHeight { 9.0f };

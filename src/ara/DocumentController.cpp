@@ -14,12 +14,14 @@ public:
     RenderJob (DocumentController& ownerToUse,
                ConversionModification& modificationToUse,
                std::shared_ptr<const VoiceModel> voiceToUse,
-               double outputSampleRateToUse)
+               double outputSampleRateToUse,
+               std::uint64_t generationToUse)
         : juce::ThreadPoolJob ("convert " + juce::String (modificationToUse.getPersistentID())),
           owner (ownerToUse),
           modification (modificationToUse),
           voice (std::move (voiceToUse)),
-          outputSampleRate (outputSampleRateToUse)
+          outputSampleRate (outputSampleRateToUse),
+          generation (generationToUse)
     {
     }
 
@@ -94,7 +96,11 @@ public:
         auto outcome = converter.convert (
             request,
             [this] (float fraction) { modification.setProgress (fraction); },
-            shouldAbort);
+            shouldAbort,
+            [this, &request] (ConversionEngine::Result partial)
+            {
+                publish (std::move (partial), request.settings);
+            });
 
         if (shouldAbort.load() || shouldExit())
         {
@@ -121,13 +127,33 @@ public:
     }
 
 private:
+    void publish (ConversionEngine::Result partial, const ConversionSettings& settings)
+    {
+        auto conversion = std::make_shared<ConversionResult>();
+        conversion->samples = std::move (partial.samples);
+        conversion->fundamentalFrequencyHz = std::move (partial.fundamentalFrequencyHz);
+        conversion->pitchFrameRate = partial.pitchFrameRate;
+        conversion->sampleRate = outputSampleRate;
+        conversion->isPartial = true;
+        conversion->settings = settings;
+        conversion->voiceName = voice->getName();
+
+        juce::MessageManager::callAsync (
+            [ownerPointer = &owner, modificationPointer = &modification, jobGeneration = generation,
+             conversion = std::move (conversion)]() mutable
+            {
+                ownerPointer->publishPartialRender (modificationPointer, jobGeneration, std::move (conversion));
+            });
+    }
+
     void finish (ConversionPointer conversion, juce::String error)
     {
         juce::MessageManager::callAsync (
-            [ownerPointer = &owner, modificationPointer = &modification,
+            [ownerPointer = &owner, modificationPointer = &modification, jobGeneration = generation,
              conversion = std::move (conversion), error = std::move (error)]() mutable
             {
-                ownerPointer->completeRender (modificationPointer, std::move (conversion), std::move (error));
+                ownerPointer->completeRender (modificationPointer, jobGeneration,
+                                              std::move (conversion), std::move (error));
             });
     }
 
@@ -135,6 +161,7 @@ private:
     ConversionModification& modification;
     std::shared_ptr<const VoiceModel> voice;
     double outputSampleRate;
+    std::uint64_t generation;
     std::atomic<bool> shouldAbort { false };
 };
 
@@ -199,7 +226,7 @@ void DocumentController::cancelRender (ConversionModification& modification)
         const auto found = activeJobs.find (&modification);
 
         if (found != activeJobs.end())
-            job = found->second;
+            job = found->second.job;
     }
 
     if (job == nullptr)
@@ -244,11 +271,12 @@ void DocumentController::requestRender (ConversionModification& modification)
 
     cancelRender (modification);
 
-    auto* job = new RenderJob { *this, modification, std::move (voice), sessionRate };
+    const auto generation = nextGeneration++;
+    auto* job = new RenderJob { *this, modification, std::move (voice), sessionRate, generation };
 
     {
         const juce::ScopedLock lock { jobLock };
-        activeJobs[&modification] = job;
+        activeJobs[&modification] = { job, generation };
     }
 
     modification.setState (ConversionModification::State::queued);
@@ -321,18 +349,24 @@ void DocumentController::applyVoice (ConversionModification& modification, const
 }
 
 void DocumentController::completeRender (ConversionModification* modification,
+                                         std::uint64_t generation,
                                          ConversionPointer conversion,
                                          juce::String error)
 {
     JUCE_ASSERT_MESSAGE_THREAD
 
-    {
-        const juce::ScopedLock lock { jobLock };
-        activeJobs.erase (modification);
-    }
-
     if (modification == nullptr)
         return;
+
+    {
+        const juce::ScopedLock lock { jobLock };
+        const auto found = activeJobs.find (modification);
+
+        if (found == activeJobs.end() || found->second.generation != generation)
+            return;
+
+        activeJobs.erase (found);
+    }
 
     if (conversion != nullptr)
     {
@@ -356,6 +390,33 @@ void DocumentController::completeRender (ConversionModification* modification,
     {
         modification->setState (ConversionModification::State::idle);
     }
+
+    notifyStateChanged();
+}
+
+void DocumentController::publishPartialRender (ConversionModification* modification,
+                                                std::uint64_t generation,
+                                                ConversionPointer conversion)
+{
+    JUCE_ASSERT_MESSAGE_THREAD
+
+    if (modification == nullptr || conversion == nullptr)
+        return;
+
+    {
+        const juce::ScopedLock lock { jobLock };
+        const auto found = activeJobs.find (modification);
+
+        if (found == activeJobs.end() || found->second.generation != generation)
+            return;
+    }
+
+    loader.withModelLocked ([modification, &conversion]
+    {
+        modification->setConversion (std::move (conversion));
+    });
+
+    modification->notifyContentChanged (juce::ARAContentUpdateScopes::samplesAreAffected(), true);
 
     notifyStateChanged();
 }

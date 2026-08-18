@@ -45,9 +45,15 @@ public:
 
     using ProgressCallback = std::function<void (float)>;
 
+    /** @brief Receives the conversion so far, so the caller can play and show it while the rest
+               is still rendering. Its samples cover the region from the start.
+    */
+    using PartialCallback = std::function<void (Result)>;
+
     [[nodiscard]] Result convert (const Request& request,
                                   const ProgressCallback& onProgress,
-                                  const std::atomic<bool>& shouldAbort) const;
+                                  const std::atomic<bool>& shouldAbort,
+                                  const PartialCallback& onPartial = {}) const;
 
     [[nodiscard]] int getMinimumNumSamples (double sampleRate) const noexcept;
 

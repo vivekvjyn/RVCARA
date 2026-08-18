@@ -69,11 +69,15 @@ void PitchCurveView::setConversion (ConversionPointer newConversion)
     if (conversion == newConversion)
         return;
 
+    const auto isFirst = conversion == nullptr;
+
     conversion = newConversion;
     track.setConversion (std::move (newConversion));
     rebuildWaveform();
     applyZoom();
-    scrollToContent();
+
+    if (isFirst)
+        scrollToContent();
 }
 
 void PitchCurveView::scrollToContent()

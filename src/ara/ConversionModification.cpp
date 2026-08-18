@@ -35,6 +35,7 @@ void ConversionModification::clearConversion()
 bool ConversionModification::isConversionCurrent (double sampleRate) const noexcept
 {
     return conversion != nullptr
+        && ! conversion->isPartial
         && conversion->voiceName == voiceName
         && conversion->settings == settings
         && juce::approximatelyEqual (conversion->sampleRate, sampleRate);

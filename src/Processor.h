@@ -13,7 +13,9 @@ namespace rvcara
 /** @brief The plug-in: parameters, the voice loader, and the two paths audio can arrive by. */
 class Processor final : public juce::AudioProcessor,
                               public juce::AudioProcessorARAExtension,
-                              private juce::AudioProcessorValueTreeState::Listener
+                              private juce::AudioProcessorValueTreeState::Listener,
+                              private juce::AsyncUpdater,
+                              private juce::Timer
 {
 public:
     Processor();
@@ -75,6 +77,12 @@ private:
     static juce::AudioProcessorValueTreeState::ParameterLayout createParameterLayout();
 
     void parameterChanged (const juce::String& parameterId, float newValue) override;
+
+    void handleAsyncUpdate() override;
+
+    void timerCallback() override;
+
+    void applySettings();
 
     void convertCapturedAudio();
 

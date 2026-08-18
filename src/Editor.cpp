@@ -164,8 +164,19 @@ void Editor::applyVoice (const juce::String& name)
 
 ConversionModification* Editor::getFocusedModification() const
 {
+    using State = ConversionModification::State;
+
     const auto modifications = processorReference.getEditableModifications();
-    return modifications.empty() ? nullptr : modifications.front();
+
+    if (modifications.empty())
+        return nullptr;
+
+    for (auto* modification : modifications)
+        if (const auto state = modification->getState();
+            state == State::rendering || state == State::queued)
+            return modification;
+
+    return modifications.front();
 }
 
 Editor::Report Editor::describeModification() const

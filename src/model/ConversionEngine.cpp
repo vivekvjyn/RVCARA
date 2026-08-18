@@ -10,6 +10,8 @@ namespace rvcara
 {
 namespace
 {
+    constexpr juce::uint32 partialIntervalMilliseconds = 900;
+
     std::vector<float> expandFrames (const std::vector<float>& source,
                                      int numSourceFrames,
                                      int featureDim,
@@ -321,7 +323,8 @@ void ConversionEngine::followSourceEnvelope (std::vector<float>& converted,
 
 ConversionEngine::Result ConversionEngine::convert (const Request& request,
                                                     const ProgressCallback& onProgress,
-                                                    const std::atomic<bool>& shouldAbort) const
+                                                    const std::atomic<bool>& shouldAbort,
+                                                    const PartialCallback& onPartial) const
 {
     Result result;
     result.pitchFrameRate = static_cast<double> (manifest.getPitchFrameRate());
@@ -400,6 +403,69 @@ ConversionEngine::Result ConversionEngine::convert (const Request& request,
         static_cast<int> (manifest.contextPaddingSeconds * manifest.modelSampleRate);
     const auto* retriever = voiceModel.getRetriever();
 
+    const auto outputSampleRate = request.outputSampleRate > 0.0 ? request.outputSampleRate
+                                                                 : request.sampleRate;
+
+    const SincResampler toOutputRate { static_cast<double> (manifest.modelSampleRate), outputSampleRate };
+
+    const auto pitchPaddingFrames = contextPadding / hopSize;
+    const auto numRegionFrames = std::max (0, numFrames - 2 * pitchPaddingFrames);
+
+    const auto assemble = [&] (const std::vector<float>& renderedSoFar, bool isComplete)
+    {
+        Result assembled;
+        assembled.pitchFrameRate = result.pitchFrameRate;
+
+        const auto renderedSeconds = static_cast<double> (renderedSoFar.size())
+                                   / static_cast<double> (manifest.modelSampleRate);
+
+        std::vector<float> shaped;
+        const auto* toResample = &renderedSoFar;
+
+        if (request.settings.envelopeFollowRatio > 0.0f)
+        {
+            const auto numAnalysisSamples = isComplete
+                ? static_cast<int> (analysis.size())
+                : std::min (static_cast<int> (renderedSeconds * analysisSampleRate),
+                            static_cast<int> (analysis.size()));
+
+            if (numAnalysisSamples > 0)
+            {
+                shaped = renderedSoFar;
+                followSourceEnvelope (shaped,
+                                      analysis.data(),
+                                      numAnalysisSamples,
+                                      analysisSampleRate,
+                                      request.settings.envelopeFollowRatio);
+                toResample = &shaped;
+            }
+        }
+
+        assembled.samples = toOutputRate.process (toResample->data(),
+                                                  static_cast<int> (toResample->size()));
+
+        const auto numOutputSamples = static_cast<std::size_t> (std::llround (
+            static_cast<double> (request.numSamples) * outputSampleRate / request.sampleRate));
+
+        assembled.samples.resize (isComplete ? numOutputSamples
+                                             : std::min (assembled.samples.size(), numOutputSamples),
+                                  0.0f);
+
+        const auto numFramesSoFar = isComplete
+            ? numRegionFrames
+            : std::min (numRegionFrames, static_cast<int> (renderedSeconds * assembled.pitchFrameRate));
+
+        if (numFramesSoFar > 0)
+            assembled.fundamentalFrequencyHz.assign (
+                melody.fundamentalFrequencyHz.begin() + pitchPaddingFrames,
+                melody.fundamentalFrequencyHz.begin() + pitchPaddingFrames + numFramesSoFar);
+
+        assembled.isValid = true;
+        return assembled;
+    };
+
+    auto lastPartialAt = juce::Time::getMillisecondCounter();
+
     std::vector<float> rendered;
     rendered.reserve (static_cast<std::size_t> (numFrames) * static_cast<std::size_t> (manifest.upsampleFactor));
 
@@ -470,6 +536,17 @@ ConversionEngine::Result ConversionEngine::convert (const Request& request,
                          chunkAudio.end() - trimEnd);
 
         report (0.15f + 0.75f * static_cast<float> (chunkIndex + 1) / static_cast<float> (chunks.size()));
+
+        if (onPartial && chunkIndex + 1 < chunks.size())
+        {
+            const auto now = juce::Time::getMillisecondCounter();
+
+            if (now - lastPartialAt >= partialIntervalMilliseconds)
+            {
+                lastPartialAt = now;
+                onPartial (assemble (rendered, false));
+            }
+        }
     }
 
     if (rendered.empty())
@@ -478,34 +555,12 @@ ConversionEngine::Result ConversionEngine::convert (const Request& request,
         return result;
     }
 
-    if (request.settings.envelopeFollowRatio > 0.0f)
-        followSourceEnvelope (rendered,
-                              analysis.data(),
-                              static_cast<int> (analysis.size()),
-                              analysisSampleRate,
-                              request.settings.envelopeFollowRatio);
-
     if (shouldAbort.load())
         return result;
 
-    const auto outputSampleRate = request.outputSampleRate > 0.0 ? request.outputSampleRate
-                                                                 : request.sampleRate;
-
-    const SincResampler toOutputRate { static_cast<double> (manifest.modelSampleRate), outputSampleRate };
-    result.samples = toOutputRate.process (rendered.data(), static_cast<int> (rendered.size()));
-
-    result.samples.resize (static_cast<std::size_t> (std::llround (
-        static_cast<double> (request.numSamples) * outputSampleRate / request.sampleRate)), 0.0f);
-
-    const auto pitchPaddingFrames = contextPadding / hopSize;
-    const auto numRegionFrames = std::max (0, numFrames - 2 * pitchPaddingFrames);
-
-    if (numRegionFrames > 0)
-    {
-        result.fundamentalFrequencyHz.assign (
-            melody.fundamentalFrequencyHz.begin() + pitchPaddingFrames,
-            melody.fundamentalFrequencyHz.begin() + pitchPaddingFrames + numRegionFrames);
-    }
+    auto assembled = assemble (rendered, true);
+    result.samples = std::move (assembled.samples);
+    result.fundamentalFrequencyHz = std::move (assembled.fundamentalFrequencyHz);
 
     report (1.0f);
 
