@@ -198,16 +198,16 @@ void Processor::parameterChanged (const juce::String&, float)
 
 void Processor::prepareToPlay (double sampleRate, int maximumExpectedSamplesPerBlock)
 {
-    prepareToPlayForARA (sampleRate,
-                         maximumExpectedSamplesPerBlock,
-                         getMainBusNumOutputChannels(),
-                         getProcessingPrecision());
+    if (prepareToPlayForARA (sampleRate,
+                             maximumExpectedSamplesPerBlock,
+                             getMainBusNumOutputChannels(),
+                             getProcessingPrecision()))
+        return;
 
-    insertConverter.setVoiceLoader (&getVoiceLoader());
     insertConverter.setSettings (getSettingsFromParameters());
     insertConverter.prepare (sampleRate, maximumExpectedSamplesPerBlock);
 
-    getVoiceLoader().requestDefaultVoice ([this] { convertCapturedAudio(); });
+    insertVoiceLoader.requestDefaultVoice ([this] { convertCapturedAudio(); });
 }
 
 void Processor::convertCapturedAudio()
@@ -218,10 +218,10 @@ void Processor::convertCapturedAudio()
 
 void Processor::releaseResources()
 {
-    releaseResourcesForARA();
+    if (releaseResourcesForARA())
+        return;
 
     insertConverter.release();
-    insertConverter.setVoiceLoader (&insertVoiceLoader);
 }
 
 double Processor::getTailLengthSeconds() const

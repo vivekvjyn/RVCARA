@@ -196,6 +196,15 @@ Editor::Report Editor::describeModification() const
         return result;
     }
 
+    if (! processorReference.hasAssignedRegions())
+    {
+        result.status = "Waiting for host";
+        result.caption = "The clip has not been handed to this instance yet, so the track plays "
+                         "unchanged for now.\n"
+                         "If it stays this way, switch ARA on for the clip in your host.";
+        return result;
+    }
+
     auto* modification = getFocusedModification();
 
     if (modification == nullptr)
@@ -377,7 +386,7 @@ Editor::Report Editor::describeCapture() const
 
 bool Editor::isRenderingThroughARA() const
 {
-    return processorReference.isUsingARA() && processorReference.hasAssignedRegions();
+    return processorReference.isUsingARA();
 }
 
 Editor::Report Editor::describeState() const
