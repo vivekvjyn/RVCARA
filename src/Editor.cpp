@@ -23,6 +23,9 @@ namespace
 
     const char* qualifierGap = "   ";
 
+    const char* bypassCaption = "The Bypass parameter is on, so RVCARA is passing the source "
+                                "through unchanged.\nTurn it off in the host's parameter list.";
+
     juce::String describeRate (double sampleRate)
     {
         return juce::String (sampleRate / 1000.0, 1) + " kHz";
@@ -193,6 +196,16 @@ Editor::Report Editor::describeModification() const
         return result;
     }
 
+    if (! processorReference.hasAssignedRegions())
+    {
+        result.status = "Not routed";
+        result.caption = "The host has bound RVCARA to ARA but has given this instance no audio "
+                         "to render, so the track passes through unchanged.\n"
+                         "In most hosts that means ARA is not switched on for the clip.";
+        result.isAlert = true;
+        return result;
+    }
+
     auto* modification = getFocusedModification();
 
     if (modification == nullptr)
@@ -226,12 +239,20 @@ Editor::Report Editor::describeModification() const
         }
     }
 
+    if (modification->getSettings().isBypassed)
+    {
+        result.status = "Bypassed";
+        result.caption = bypassCaption;
+        result.isAlert = true;
+        return result;
+    }
+
     result.progress = modification->getProgress();
 
     switch (modification->getState())
     {
         case State::idle:
-            result.status = modification->getSettings().isBypassed ? "Bypassed" : "Ready";
+            result.status = "Ready";
             break;
 
         case State::queued:
@@ -301,6 +322,14 @@ Editor::Report Editor::describeCapture() const
         result.caption = "This host gives RVCARA no transport position, so a take cannot be "
                          "captured and played back in place.\n"
                          "Load it in a DAW, on a track with audio on it.";
+        result.isAlert = true;
+        return result;
+    }
+
+    if (converter.getSettings().isBypassed)
+    {
+        result.status = "Bypassed";
+        result.caption = bypassCaption;
         result.isAlert = true;
         return result;
     }

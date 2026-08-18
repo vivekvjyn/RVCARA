@@ -130,6 +130,14 @@ ConversionSettings Processor::getSettingsFromParameters() const
     return settings;
 }
 
+bool Processor::hasAssignedRegions() const
+{
+    if (auto* playbackRenderer = getPlaybackRenderer<juce::ARAPlaybackRenderer>())
+        return ! playbackRenderer->getPlaybackRegions().empty();
+
+    return false;
+}
+
 std::vector<ConversionModification*> Processor::getEditableModifications() const
 {
     auto* documentController = getConversionDocumentController();
