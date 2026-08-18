@@ -164,15 +164,12 @@ bool PlaybackRenderer::processBlock (juce::AudioBuffer<float>& buffer,
             }
         }
 
-        if (! renderedFromConversion)
+        if (! renderedFromConversion
+            && ! renderSourceAudio (*playbackRegion, buffer, startInBuffer, numSamplesToRead,
+                                    startInSource, realtime))
         {
-            if (audioSource->getChannelCount() != buffer.getNumChannels()
-                || ! renderSourceAudio (*playbackRegion, buffer, startInBuffer, numSamplesToRead,
-                                        startInSource, realtime))
-            {
-                wasSuccessful = false;
-                continue;
-            }
+            wasSuccessful = false;
+            continue;
         }
 
         if (! didRenderAnything)

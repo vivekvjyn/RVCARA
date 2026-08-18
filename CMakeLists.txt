@@ -260,7 +260,7 @@ if(NOT MSVC)
         -Wno-unused-parameter -Wno-sign-compare)
 endif()
 
-set(RVCARA_FORMATS VST3 LV2)
+set(RVCARA_FORMATS VST3 LV2 Standalone)
 
 if(APPLE)
     list(APPEND RVCARA_FORMATS AU)

@@ -10,12 +10,12 @@ namespace
     using TypeScale = PanelLookAndFeel::TypeScale;
     using Metrics = PanelLookAndFeel::Metrics;
 
-    constexpr int defaultWidth = 720;
-    constexpr int defaultHeight = 420;
-    constexpr int minimumWidth = 560;
-    constexpr int minimumHeight = 320;
-    constexpr int maximumWidth = 1440;
-    constexpr int maximumHeight = 840;
+    constexpr int defaultWidth = 980;
+    constexpr int defaultHeight = 572;
+    constexpr int minimumWidth = 700;
+    constexpr int minimumHeight = 409;
+    constexpr int maximumWidth = 1960;
+    constexpr int maximumHeight = 1144;
 
     constexpr int refreshHz = 15;
     constexpr int voiceButtonWidth = 220;
