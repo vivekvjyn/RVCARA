@@ -196,15 +196,6 @@ Editor::Report Editor::describeModification() const
         return result;
     }
 
-    if (! processorReference.hasAssignedRegions())
-    {
-        result.status = "Waiting for host";
-        result.caption = "The clip has not been handed to this instance yet, so the track plays "
-                         "unchanged for now.\n"
-                         "If it stays this way, switch ARA on for the clip in your host.";
-        return result;
-    }
-
     auto* modification = getFocusedModification();
 
     if (modification == nullptr)
@@ -384,9 +375,14 @@ Editor::Report Editor::describeCapture() const
     return result;
 }
 
+bool Editor::isRenderingThroughARA() const
+{
+    return processorReference.isUsingARA() && processorReference.hasAssignedRegions();
+}
+
 Editor::Report Editor::describeState() const
 {
-    return processorReference.isUsingARA() ? describeModification() : describeCapture();
+    return isRenderingThroughARA() ? describeModification() : describeCapture();
 }
 
 void Editor::refresh()
@@ -394,9 +390,9 @@ void Editor::refresh()
     report = describeState();
     voiceButton.setButtonText (describeLoadedVoice());
 
-    auto* modification = processorReference.isUsingARA() ? getFocusedModification() : nullptr;
+    auto* modification = isRenderingThroughARA() ? getFocusedModification() : nullptr;
 
-    pitchCurveView.setConversion (processorReference.isUsingARA()
+    pitchCurveView.setConversion (isRenderingThroughARA()
                                       ? (modification != nullptr ? modification->getConversion() : nullptr)
                                       : processorReference.getInsertConverter().getConversion());
 
@@ -431,7 +427,7 @@ void Editor::paintHeader (juce::Graphics& graphics, juce::Rectangle<int> bounds)
                                + 12.0f);
 
     PanelLookAndFeel::drawTrackedText (graphics,
-                                       processorReference.isUsingARA() ? "ARA" : "INSERT",
+                                       isRenderingThroughARA() ? "ARA" : "INSERT",
                                        textBounds,
                                        juce::Justification::left,
                                        TypeScale::label,

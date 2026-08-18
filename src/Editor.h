@@ -41,6 +41,9 @@ private:
         bool isAlert { false };
     };
 
+    /** @brief Returns true when ARA is both bound and actually rendering this instance. */
+    [[nodiscard]] bool isRenderingThroughARA() const;
+
     [[nodiscard]] Report describeState() const;
     [[nodiscard]] Report describeModification() const;
     [[nodiscard]] Report describeCapture() const;
