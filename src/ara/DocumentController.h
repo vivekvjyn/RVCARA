@@ -76,6 +76,9 @@ protected:
 
     void didEnableAudioSourceSamplesAccess (juce::ARAAudioSource* audioSource, bool enable) noexcept override;
 
+    void doUpdateAudioSourceContent (juce::ARAAudioSource* audioSource,
+                                     juce::ARAContentUpdateScopes scopeFlags) noexcept override;
+
 private:
     class RenderJob;
 

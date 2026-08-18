@@ -366,6 +366,16 @@ void DocumentController::didEnableAudioSourceSamplesAccess (juce::ARAAudioSource
             requestRender (*modification);
 }
 
+void DocumentController::doUpdateAudioSourceContent (juce::ARAAudioSource* audioSource,
+                                                     juce::ARAContentUpdateScopes scopeFlags) noexcept
+{
+    if (audioSource == nullptr || ! scopeFlags.affectSamples())
+        return;
+
+    for (auto* modification : audioSource->getAudioModifications<ConversionModification>())
+        requestRender (*modification);
+}
+
 bool DocumentController::doStoreObjectsToStream (juce::ARAOutputStream& output,
                                                  const juce::ARAStoreObjectsFilter* filter) noexcept
 {
