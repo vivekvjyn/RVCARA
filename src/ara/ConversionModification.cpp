@@ -104,6 +104,12 @@ void ConversionModification::writeNotes (juce::OutputStream& stream, const Pitch
         stream.writeFloat (note.tiltRight);
         stream.writeBool (note.isRest);
     }
+
+    stream.writeDouble (edit.curveFrameRate);
+    stream.writeInt (static_cast<int> (edit.curveOffsetSemitones.size()));
+
+    for (const auto offset : edit.curveOffsetSemitones)
+        stream.writeFloat (offset);
 }
 
 PitchEdit ConversionModification::readNotes (juce::InputStream& stream, int version)
@@ -138,6 +144,21 @@ PitchEdit ConversionModification::readNotes (juce::InputStream& stream, int vers
         note.isRest = stream.readBool();
 
         edit.notes.push_back (note);
+    }
+
+    if (version >= 4)
+    {
+        edit.curveFrameRate = stream.readDouble();
+
+        const auto numOffsets = stream.readInt();
+
+        if (numOffsets > 0 && numOffsets <= maximumNotes)
+        {
+            edit.curveOffsetSemitones.reserve (static_cast<std::size_t> (numOffsets));
+
+            for (int index = 0; index < numOffsets && ! stream.isExhausted(); ++index)
+                edit.curveOffsetSemitones.push_back (stream.readFloat());
+        }
     }
 
     return edit;

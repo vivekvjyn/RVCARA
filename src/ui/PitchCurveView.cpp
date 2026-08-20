@@ -151,6 +151,19 @@ void PitchCurveView::setOverviewShown (bool isShown)
     overviewButton.setToggleState (isShown, juce::dontSendNotification);
 }
 
+void PitchCurveView::setTimeline (bool shouldShowBeats, double newTempo, int newBeatsPerBar)
+{
+    if (showBeats == shouldShowBeats
+        && juce::approximatelyEqual (tempo, newTempo)
+        && beatsPerBar == newBeatsPerBar)
+        return;
+
+    showBeats = shouldShowBeats;
+    tempo = newTempo > 0.0 ? newTempo : 120.0;
+    beatsPerBar = newBeatsPerBar > 0 ? newBeatsPerBar : 4;
+    repaint();
+}
+
 void PitchCurveView::setCaption (const juce::String& newCaption, bool isAlert)
 {
     if (caption == newCaption && isCaptionAlert == isAlert)
@@ -320,10 +333,14 @@ void PitchCurveView::paintRuler (juce::Graphics& graphics, juce::Rectangle<int> 
 
     const auto pixelsPerSecond = track.getPixelsPerSecond();
     const auto originX = static_cast<float> (bounds.getX() - viewport.getViewPositionX());
-    const auto step = chooseRulerStep (pixelsPerSecond);
+
+    const auto secondsPerBeat = 60.0 / tempo;
+    const auto step = showBeats ? secondsPerBeat * beatsPerBar : chooseRulerStep (pixelsPerSecond);
 
     for (auto second = 0.0; second <= track.getSeconds() + step; second += step)
     {
+        const auto barNumber = 1 + juce::roundToInt (second / step);
+
         const auto x = originX + static_cast<float> (second * static_cast<double> (pixelsPerSecond));
 
         if (x < static_cast<float> (bounds.getX()) - 1.0f || x > static_cast<float> (bounds.getRight()))
@@ -334,7 +351,8 @@ void PitchCurveView::paintRuler (juce::Graphics& graphics, juce::Rectangle<int> 
                            static_cast<float> (bounds.getHeight()));
 
         PanelLookAndFeel::drawTrackedText (graphics,
-                                           describeTime (second, step),
+                                           showBeats ? juce::String (barNumber)
+                                                     : describeTime (second, step),
                                            juce::Rectangle<float> { x + 7.0f,
                                                                     static_cast<float> (bounds.getY()),
                                                                     60.0f,

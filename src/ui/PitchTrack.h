@@ -37,7 +37,8 @@ public:
     {
         select,
         split,
-        glue
+        anchor,
+        timing
     };
 
     /** @brief The controls drawn above a note that is on its own in the selection. */
@@ -83,6 +84,11 @@ public:
 
     /** @brief Whether dragging a note lands it on a degree of the scale or moves it freely. */
     void setSnapWhileDragging (bool shouldSnap) noexcept { snapWhileDragging = shouldSnap; }
+
+    /** @brief Sets the grid a boundary drag lands on.
+        @param secondsPerDivision  How long one division is, or zero to leave boundaries free.
+    */
+    void setTimeGrid (double secondsPerDivision) noexcept { gridSeconds = secondsPerDivision; }
 
     /** @brief Rounds a note onto the nearest degree of the current scale. */
     [[nodiscard]] float snapToScale (float midiNote) const;
@@ -159,7 +165,8 @@ private:
         pitch,
         boundary,
         handle,
-        band
+        band,
+        curve
     };
 
     [[nodiscard]] std::optional<float> getYForFrequency (float frequencyHz) const;
@@ -197,6 +204,13 @@ private:
     void paintNotes (juce::Graphics& graphics) const;
     void paintHandles (juce::Graphics& graphics) const;
     void paintPlayhead (juce::Graphics& graphics) const;
+
+    /** @brief Writes the drawn curve so it passes through a point, smoothing into what is there.
+        @param position  Where the mouse is, in this component's coordinates.
+    */
+    void drawCurveAt (juce::Point<float> position);
+
+    [[nodiscard]] int getBoundaryNear (float x) const;
     void paintCurve (juce::Graphics& graphics,
                      const std::vector<float>& track,
                      juce::Colour colour,
@@ -231,6 +245,7 @@ private:
     int scaleRoot { 0 };
     int scaleMask { 0xfff };
     bool snapWhileDragging { true };
+    double gridSeconds { 0.0 };
 
     double playheadSeconds { -1.0 };
 

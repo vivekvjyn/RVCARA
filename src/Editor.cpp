@@ -19,7 +19,13 @@ namespace
 
     constexpr int refreshHz = 15;
     /** @brief The toolbar's geometry, taken from PitchNet's so the panel reads the same. */
-    constexpr int toolSlotSize = 24;
+    constexpr int transportSlotSize = 30;
+    constexpr int transportSlotStride = 28;
+    constexpr int transportPad = 9;
+    constexpr int transportCapsuleHeight = 38;
+    constexpr int logoRight = 120;
+
+    constexpr int toolSlotSize = 22;
     constexpr int toolGap = 6;
     constexpr int toolPad = 15;
     constexpr int toolGroupHeight = 38;
@@ -80,11 +86,40 @@ Editor::Editor (Processor& processorToUse)
 
     addTool (selectButton, PitchTrack::Tool::select);
     addTool (splitButton, PitchTrack::Tool::split);
-    addTool (glueButton, PitchTrack::Tool::glue);
+    addTool (anchorButton, PitchTrack::Tool::anchor);
+    addTool (timingButton, PitchTrack::Tool::timing);
 
     selectButton.setToggleState (true, juce::dontSendNotification);
 
-    snapButton.onClick = [this] { pitchCurveView.getTrack().snapSelection(); refresh(); };
+    stopButton.onClick = [this]
+    {
+        processorReference.setTransportPlaying (false);
+        processorReference.rewindTransport();
+    };
+
+    playButton.onClick = [this]
+    {
+        processorReference.setTransportPlaying (! processorReference.isTransportPlaying());
+    };
+
+    loopButton.setClickingTogglesState (true);
+    loopButton.onClick = [this] { isLooping = loopButton.getToggleState(); };
+
+    for (auto* button : { &stopButton, &playButton, &loopButton })
+        addAndMakeVisible (*button);
+
+    auditionButton.setClickingTogglesState (true);
+    auditionButton.setToggleState (true, juce::dontSendNotification);
+    auditionButton.onClick = [this]
+    {
+        isAuditioning = auditionButton.getToggleState();
+
+        if (isAuditioning)
+            applyPitchEdit (pitchCurveView.getTrack().getPitchEdit());
+    };
+    addAndMakeVisible (auditionButton);
+
+    quantizeButton.onClick = [this] { pitchCurveView.getTrack().snapSelection(); refresh(); };
     undoButton.onClick = [this] { pitchCurveView.getTrack().undo(); refresh(); };
     redoButton.onClick = [this] { pitchCurveView.getTrack().redo(); refresh(); };
 
@@ -92,7 +127,7 @@ Editor::Editor (Processor& processorToUse)
     panelButton.setToggleState (true, juce::dontSendNotification);
     panelButton.onClick = [this] { setPanelShown (panelButton.getToggleState()); };
 
-    for (auto* button : { &snapButton, &undoButton, &redoButton, &panelButton })
+    for (auto* button : { &quantizeButton, &undoButton, &redoButton, &panelButton })
         addAndMakeVisible (*button);
 
     scaleButton.setTriggeredOnMouseDown (true);
@@ -112,6 +147,13 @@ Editor::Editor (Processor& processorToUse)
         snapWhileDragging = snap;
         pitchCurveView.getTrack().setSnapWhileDragging (snap);
     };
+
+    propertyPanel.onShowBeatsChanged = [this] (bool beats) { showBeats = beats; applyTimeline(); };
+    propertyPanel.onBeatClicked = [this] { showBeatMenu(); };
+    propertyPanel.onGridClicked = [this] { showGridMenu(); };
+    propertyPanel.onTempoChanged = [this] (double bpm) { tempo = bpm; applyTimeline(); };
+    propertyPanel.onSnapCycleChanged = [this] (bool snap) { snapCycle = snap; applyTimeline(); };
+    propertyPanel.onBrightnessChanged = [this] (double value) { brightness = value; repaint(); };
     addAndMakeVisible (propertyPanel);
 
     overviewStrip.onScrubbed = [this] (double) {};
@@ -269,6 +311,70 @@ void Editor::applyChromatic (bool shouldBeChromatic)
         shouldBeChromatic ? 0xfff : scales[static_cast<std::size_t> (scaleMode)].degreeMask);
 
     refresh();
+}
+
+void Editor::applyTimeline()
+{
+    pitchCurveView.setTimeline (showBeats, tempo, beatsPerBar);
+
+    const auto secondsPerBeat = 60.0 / (tempo > 0.0 ? tempo : 120.0);
+    const auto division = showBeats && snapCycle
+                            ? secondsPerBeat * 4.0 / static_cast<double> (gridDivision)
+                            : 0.0;
+
+    pitchCurveView.getTrack().setTimeGrid (division);
+    refresh();
+}
+
+void Editor::showBeatMenu()
+{
+    juce::PopupMenu menu;
+    menu.setLookAndFeel (&lookAndFeel);
+
+    const std::pair<int, int> signatures[] { { 2, 4 }, { 3, 4 }, { 4, 4 }, { 5, 4 }, { 6, 8 }, { 7, 8 } };
+
+    for (int index = 0; index < static_cast<int> (std::size (signatures)); ++index)
+        menu.addItem (index + 1,
+                      juce::String (signatures[index].first) + "/" + juce::String (signatures[index].second),
+                      true,
+                      beatsPerBar == signatures[index].first && beatUnit == signatures[index].second);
+
+    menu.showMenuAsync (juce::PopupMenu::Options {}.withTargetComponent (propertyPanel)
+                                                   .withStandardItemHeight (26),
+                        [this, signatures] (int chosen)
+                        {
+                            if (chosen <= 0)
+                                return;
+
+                            beatsPerBar = signatures[chosen - 1].first;
+                            beatUnit = signatures[chosen - 1].second;
+                            applyTimeline();
+                        });
+}
+
+void Editor::showGridMenu()
+{
+    juce::PopupMenu menu;
+    menu.setLookAndFeel (&lookAndFeel);
+
+    const int divisions[] { 1, 2, 4, 8, 16 };
+
+    for (int index = 0; index < static_cast<int> (std::size (divisions)); ++index)
+        menu.addItem (index + 1,
+                      "1/" + juce::String (divisions[index]),
+                      true,
+                      gridDivision == divisions[index]);
+
+    menu.showMenuAsync (juce::PopupMenu::Options {}.withTargetComponent (propertyPanel)
+                                                   .withStandardItemHeight (26),
+                        [this, divisions] (int chosen)
+                        {
+                            if (chosen <= 0)
+                                return;
+
+                            gridDivision = divisions[chosen - 1];
+                            applyTimeline();
+                        });
 }
 
 void Editor::setPanelShown (bool isShown)
@@ -539,6 +645,14 @@ void Editor::applyPitchEdit (const PitchEdit& edit)
 {
     auto* documentController = processorReference.getConversionDocumentController();
 
+    // With audition off an edit is kept but not sung, so a long take is not re-rendered under
+    // every gesture.
+    if (! isAuditioning)
+    {
+        refresh();
+        return;
+    }
+
     if (documentController != nullptr && shownModification != nullptr)
         documentController->applyPitchEdit (*shownModification, edit);
 
@@ -548,6 +662,12 @@ void Editor::applyPitchEdit (const PitchEdit& edit)
 void Editor::refresh()
 {
     report = describeState();
+
+    if (const auto hostTempo = processorReference.getHostTempo(); hostTempo > 0.0 && ! showBeats)
+        tempo = hostTempo;
+
+    if (const auto hostBeats = processorReference.getHostBeatsPerBar(); hostBeats > 0 && ! showBeats)
+        beatsPerBar = hostBeats;
 
     shownModification = isRenderingThroughARA() ? getFocusedModification() : nullptr;
 
@@ -581,8 +701,16 @@ void Editor::refresh()
     const auto hasNotes = ! editorTrack.getPitchEdit().notes.empty();
     const auto canEdit = shownModification != nullptr && hasNotes;
 
-    for (auto* button : { &selectButton, &splitButton, &glueButton, &snapButton })
+    for (auto* button : { &selectButton, &splitButton, &anchorButton, &timingButton,
+                          &quantizeButton, &auditionButton })
         button->setEnabled (canEdit);
+
+    const auto canDrive = processorReference.canControlTransport();
+
+    for (auto* button : { &stopButton, &playButton, &loopButton })
+        button->setEnabled (canDrive);
+
+    playButton.setToggleState (processorReference.isTransportPlaying(), juce::dontSendNotification);
 
     undoButton.setEnabled (canEdit && editorTrack.canUndo());
     redoButton.setEnabled (canEdit && editorTrack.canRedo());
@@ -600,6 +728,12 @@ void Editor::refresh()
     state.scaleRoot = scaleRoot;
     state.scaleMode = scaleMode;
     state.snapWhileDragging = snapWhileDragging;
+    state.showBeats = showBeats;
+    state.beatSignature = juce::String (beatsPerBar) + "/" + juce::String (beatUnit);
+    state.tempo = tempo;
+    state.gridDivision = "1/" + juce::String (gridDivision);
+    state.snapCycle = snapCycle;
+    state.brightness = brightness;
     state.voiceName = describeLoadedVoice();
     state.voiceDetail = describeVoiceDetail();
     state.status = report.status;
@@ -643,11 +777,12 @@ void Editor::paintHeader (juce::Graphics& graphics, juce::Rectangle<int> bounds)
                                        Metrics::tracking + 1.5f,
                                        Palette::text);
 
-    if (! toolCapsule.isEmpty())
-    {
-        graphics.setColour (Palette::well);
-        graphics.fillRoundedRectangle (toolCapsule.toFloat(), Metrics::corner + 2.0f);
-    }
+    for (const auto& capsule : { toolCapsule, transportCapsule })
+        if (! capsule.isEmpty())
+        {
+            graphics.setColour (Palette::well);
+            graphics.fillRoundedRectangle (capsule.toFloat(), Metrics::corner + 2.0f);
+        }
 }
 
 void Editor::paint (juce::Graphics& graphics)
@@ -655,6 +790,18 @@ void Editor::paint (juce::Graphics& graphics)
     graphics.fillAll (Palette::ground);
 
     paintHeader (graphics, headerBounds);
+}
+
+void Editor::paintOverChildren (juce::Graphics& graphics)
+{
+    if (juce::approximatelyEqual (brightness, 100.0))
+        return;
+
+    const auto amount = static_cast<float> (std::abs (brightness - 100.0) / 100.0) * 0.55f;
+
+    graphics.setColour ((brightness > 100.0 ? juce::Colours::white : juce::Colours::black)
+                            .withAlpha (amount));
+    graphics.fillRect (getLocalBounds());
 }
 
 void Editor::resized()
@@ -680,13 +827,14 @@ void Editor::resized()
         placeRight (panelButton, 6);
         placeRight (redoButton, 2);
         placeRight (undoButton, 2);
-        placeRight (snapButton, 2);
+        placeRight (auditionButton, 2);
+        placeRight (quantizeButton, 2);
 
-        scaleButton.setBounds (snapButton.getX() - 11 - scaleButtonWidth,
+        scaleButton.setBounds (quantizeButton.getX() - 11 - scaleButtonWidth,
                                1 + (contentHeight - 26) / 2,
                                scaleButtonWidth, 26);
 
-        const auto groupWidth = toolSlotSize * 3 + toolGap * 2 + toolPad * 2;
+        const auto groupWidth = toolSlotSize * 4 + toolGap * 3 + toolPad * 2;
 
         toolCapsule = { headerBounds.getCentreX() - groupWidth / 2,
                         1 + (contentHeight - toolGroupHeight) / 2,
@@ -695,11 +843,28 @@ void Editor::resized()
 
         auto tools = toolCapsule.reduced (toolPad, 0);
 
-        for (auto* button : { &selectButton, &splitButton, &glueButton })
+        for (auto* button : { &selectButton, &splitButton, &anchorButton, &timingButton })
         {
             button->setBounds (tools.removeFromLeft (toolSlotSize)
                                     .withSizeKeepingCentre (toolSlotSize, toolSlotSize));
             tools.removeFromLeft (toolGap);
+        }
+
+        // The transport sits beside the wordmark, where PitchNet keeps it.
+        const auto transportWidth = transportSlotSize + transportSlotStride * 2 + transportPad * 2;
+
+        transportCapsule = { logoRight + 24,
+                             1 + (contentHeight - transportCapsuleHeight) / 2,
+                             transportWidth,
+                             transportCapsuleHeight };
+
+        auto slotX = transportCapsule.getX() + transportPad;
+
+        for (auto* button : { &stopButton, &playButton, &loopButton })
+        {
+            button->setBounds (slotX, transportCapsule.getCentreY() - transportSlotSize / 2,
+                               transportSlotSize, transportSlotSize);
+            slotX += transportSlotStride;
         }
     }
 

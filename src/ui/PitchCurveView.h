@@ -56,6 +56,13 @@ public:
 
     void setOverviewShown (bool isShown);
 
+    /** @brief Chooses what the ruler counts.
+        @param showBeats    True to count bars and beats rather than minutes and seconds.
+        @param tempo        Beats per minute.
+        @param beatsPerBar  The time signature's numerator.
+    */
+    void setTimeline (bool showBeats, double tempo, int beatsPerBar);
+
     void paint (juce::Graphics& graphics) override;
     void paintOverChildren (juce::Graphics& graphics) override;
     void resized() override;
@@ -112,6 +119,9 @@ private:
     juce::Rectangle<int> rulerBounds;
 
     double playheadSeconds { -1.0 };
+    bool showBeats { false };
+    double tempo { 120.0 };
+    int beatsPerBar { 4 };
 
     juce::String caption;
     bool isCaptionAlert { false };

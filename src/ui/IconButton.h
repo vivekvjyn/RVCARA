@@ -18,7 +18,13 @@ public:
     {
         select,
         split,
-        glue,
+        anchor,
+        timing,
+        play,
+        pause,
+        stop,
+        loop,
+        audition,
         magnet,
         undo,
         redo,
@@ -88,16 +94,60 @@ private:
                                       area.getWidth() * 0.26f, area.getHeight() * 0.26f);
                 return;
 
-            case Icon::glue:
-                path.addRoundedRectangle (area.getX(), area.getCentreY() - area.getHeight() * 0.16f,
-                                          area.getWidth() * 0.44f, area.getHeight() * 0.32f, 2.0f);
-                path.addRoundedRectangle (area.getRight() - area.getWidth() * 0.44f,
-                                          area.getCentreY() - area.getHeight() * 0.16f,
-                                          area.getWidth() * 0.44f, area.getHeight() * 0.32f, 2.0f);
+            case Icon::anchor:
+                path.startNewSubPath (area.getX(), area.getBottom());
+                path.quadraticTo (area.getCentreX(), area.getY() - area.getHeight() * 0.2f,
+                                  area.getRight(), area.getCentreY());
+                graphics.strokePath (path, stroke);
+                graphics.fillEllipse (area.getCentreX() - area.getWidth() * 0.16f,
+                                      area.getCentreY() - area.getHeight() * 0.34f,
+                                      area.getWidth() * 0.32f, area.getHeight() * 0.32f);
+                return;
+
+            case Icon::timing:
+                path.startNewSubPath (area.getX() + area.getWidth() * 0.2f, area.getY());
+                path.lineTo (area.getX() + area.getWidth() * 0.2f, area.getBottom());
+                path.startNewSubPath (area.getRight() - area.getWidth() * 0.2f, area.getY());
+                path.lineTo (area.getRight() - area.getWidth() * 0.2f, area.getBottom());
+                path.startNewSubPath (area.getX() + area.getWidth() * 0.2f, area.getCentreY());
+                path.lineTo (area.getRight() - area.getWidth() * 0.2f, area.getCentreY());
+                graphics.strokePath (path, stroke);
+                return;
+
+            case Icon::play:
+                path.addTriangle (area.getX() + area.getWidth() * 0.1f, area.getY(),
+                                  area.getX() + area.getWidth() * 0.1f, area.getBottom(),
+                                  area.getRight(), area.getCentreY());
                 graphics.fillPath (path);
-                graphics.fillRect (area.getCentreX() - area.getWidth() * 0.08f,
-                                   area.getCentreY() - area.getHeight() * 0.06f,
-                                   area.getWidth() * 0.16f, area.getHeight() * 0.12f);
+                return;
+
+            case Icon::pause:
+                graphics.fillRect (area.getX() + area.getWidth() * 0.08f, area.getY(),
+                                   area.getWidth() * 0.26f, area.getHeight());
+                graphics.fillRect (area.getRight() - area.getWidth() * 0.34f, area.getY(),
+                                   area.getWidth() * 0.26f, area.getHeight());
+                return;
+
+            case Icon::stop:
+                graphics.fillRoundedRectangle (area.reduced (area.getWidth() * 0.08f), 1.5f);
+                return;
+
+            case Icon::loop:
+                path.addArc (area.getX(), area.getY(), area.getWidth(), area.getHeight(),
+                             juce::MathConstants<float>::pi * 0.15f,
+                             juce::MathConstants<float>::pi * 1.75f, true);
+                graphics.strokePath (path, stroke);
+                graphics.fillPath (makeArrow (area.withTrimmedBottom (area.getHeight() * 0.55f), true));
+                return;
+
+            case Icon::audition:
+                path.startNewSubPath (area.getX(), area.getCentreY());
+                path.lineTo (area.getX() + area.getWidth() * 0.3f, area.getCentreY());
+                path.lineTo (area.getX() + area.getWidth() * 0.45f, area.getY());
+                path.lineTo (area.getX() + area.getWidth() * 0.6f, area.getBottom());
+                path.lineTo (area.getX() + area.getWidth() * 0.75f, area.getCentreY());
+                path.lineTo (area.getRight(), area.getCentreY());
+                graphics.strokePath (path, stroke);
                 return;
 
             case Icon::magnet:

@@ -61,15 +61,28 @@ struct EditedNote
     [[nodiscard]] bool operator!= (const EditedNote& other) const noexcept { return ! (*this == other); }
 };
 
-/** @brief A whole performance as notes, which is what the pitch editor edits. */
+/** @brief A whole performance as notes and, over them, the curve the user drew by hand. */
 struct PitchEdit
 {
     std::vector<EditedNote> notes;
 
+    /** @brief What the anchor tool has added to each frame, in semitones, or empty when it has
+               not been used. Added after the notes have had their say.
+    */
+    std::vector<float> curveOffsetSemitones;
+
+    /** @brief The frame rate @ref curveOffsetSemitones was drawn at, so a rerate can be spotted. */
+    double curveFrameRate { 0.0 };
+
     /** @brief Whether the edit would change the take at all, so a render can skip it. */
     [[nodiscard]] bool isNeutral() const noexcept;
 
-    [[nodiscard]] bool operator== (const PitchEdit& other) const noexcept { return notes == other.notes; }
+    [[nodiscard]] bool operator== (const PitchEdit& other) const noexcept
+    {
+        return notes == other.notes
+            && curveOffsetSemitones == other.curveOffsetSemitones
+            && curveFrameRate == other.curveFrameRate;
+    }
     [[nodiscard]] bool operator!= (const PitchEdit& other) const noexcept { return ! (*this == other); }
 
     [[nodiscard]] std::uint64_t getHash() const noexcept;

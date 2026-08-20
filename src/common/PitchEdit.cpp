@@ -32,6 +32,10 @@ namespace
 
 bool PitchEdit::isNeutral() const noexcept
 {
+    if (std::any_of (curveOffsetSemitones.begin(), curveOffsetSemitones.end(),
+                     [] (float offset) { return offset != 0.0f; }))
+        return false;
+
     return std::all_of (notes.begin(), notes.end(),
                         [] (const EditedNote& note) { return note.isNeutral(); });
 }
@@ -48,6 +52,11 @@ std::uint64_t PitchEdit::getHash() const noexcept
             hash *= 0x100000001b3ULL;
         }
     };
+
+    mix (std::bit_cast<std::uint64_t> (curveFrameRate));
+
+    for (const auto offset : curveOffsetSemitones)
+        mix (std::bit_cast<std::uint32_t> (offset));
 
     for (const auto& note : notes)
     {
@@ -145,6 +154,28 @@ void applyPitchEdit (std::vector<float>& fundamentalFrequencyHz,
 
             frequencyHz = static_cast<float> (midiNoteToHz (static_cast<double> (shaped)));
         }
+    }
+
+    // The hand-drawn curve goes on last, so it moves whatever the notes have already done.
+    for (std::size_t index = 0; index < edit.curveOffsetSemitones.size(); ++index)
+    {
+        const auto offset = edit.curveOffsetSemitones[index];
+
+        if (offset == 0.0f)
+            continue;
+
+        const auto frameIndex = firstFrame + static_cast<int> (index);
+
+        if (frameIndex < 0 || frameIndex >= numFrames)
+            continue;
+
+        auto& frequencyHz = fundamentalFrequencyHz[static_cast<std::size_t> (frameIndex)];
+
+        if (frequencyHz <= 0.0f)
+            continue;
+
+        frequencyHz = static_cast<float> (
+            midiNoteToHz (hzToMidiNote (static_cast<double> (frequencyHz)) + static_cast<double> (offset)));
     }
 }
 }

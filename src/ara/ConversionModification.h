@@ -91,8 +91,8 @@ public:
     static void readAndDiscard (juce::InputStream& stream);
 
 private:
-    /** @brief One held the settings alone, two added the notes, three their tilts. */
-    static constexpr int archiveVersion = 3;
+    /** @brief One held the settings, two the notes, three their tilts, four the drawn curve. */
+    static constexpr int archiveVersion = 4;
 
     static void writeNotes (juce::OutputStream& stream, const PitchEdit& edit);
 

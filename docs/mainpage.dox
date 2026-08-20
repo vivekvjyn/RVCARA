@@ -174,9 +174,28 @@ The window is laid out the way PitchNet's is, because that is the layout a pitch
 a toolbar across the top, the piano roll under it with its property cards down the right, and
 the take at a glance along the bottom.
 
-The toolbar carries the wordmark on the left, the edit tools centred in a capsule, and the rest
-on the right: the scale, snap, undo, redo, and the switch that hides the property cards. All of
-them are drawn icons rather than words, so they stay legible at the size they are.
+The toolbar carries the wordmark on the left with the transport beside it, the four edit tools
+centred in a capsule, and the rest on the right: the scale, quantize, audition, undo, redo, and
+the switch that hides the property cards. All of them are drawn icons rather than words, so
+there are no assets and nothing goes soft when they scale.
+
+The transport asks the host to play, stop or loop, and greys out in hosts that do not let a
+plug-in do that. Audition is what makes an edit sing: with it off the notes are still edited and
+still drawn, but nothing is re-rendered until it is turned back on, which is how a long take is
+kept from converting under every gesture.
+
+The four tools are Select, Split, Anchor and Timing. Select moves notes and their boundaries,
+Split cuts a note where it is clicked, Timing moves only boundaries and lands them on the grid
+when Snap Cycle is on, and Anchor draws the melody by hand: it writes into a track of per-frame
+offsets that rvcara::applyPitchEdit adds after the notes have had their say, so drawing over a
+note that has already been moved moves what is there rather than replacing it.
+
+The property cards are Pitch, Time, UI Brightness and Voice. Pitch chooses chromatic or a key
+and whether dragging snaps. Time chooses whether the ruler counts bars or minutes, and carries
+the signature, the tempo, the grid and Snap Cycle; the tempo and signature follow the host until
+the ruler is switched to bars, after which they are the panel's. UI Brightness dims or lifts the
+whole window. Voice is the model and what it is doing, which is the one card PitchNet has no
+equivalent of, because it is the one thing RVCARA does that PitchNet does not.
 
 The roll has a column of note names pinned to its left and a time ruler across its top, and
 between them the grid scrolls on both axes with one row per semitone from C2 to C6. Each note is
@@ -192,10 +211,9 @@ Dragging a body moves the note; it lands on the nearest degree of the chosen sca
 is switched off, and shift inverts whichever way it is set. Dragging where two bodies meet moves
 the boundary between them, and dragging empty grid draws a band that selects what it touches.
 Shift or command adds to a selection, and a tool given nothing selected acts on every note.
-Split cuts a note where it is clicked and Glue joins a note to the one after it. Snap puts the
-selection on the nearest degrees. Undo and redo cover every gesture, the arrow keys nudge by a
-semitone or by a tenth of one with shift held, and delete puts the selection back the way it was
-sung.
+Quantize puts the selection on the nearest degrees. Undo and redo cover every gesture, the arrow
+keys nudge by a semitone or by a tenth of one with shift held, and delete puts the selection back
+the way it was sung, drawn curve and all.
 
 A note selected on its own carries three controls above it, the way PitchNet's do. The outer two
 tilt the note from its edges toward its middle, which is how a scoop into a note or a fall out of

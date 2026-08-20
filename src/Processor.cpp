@@ -283,6 +283,26 @@ double Processor::getPlayheadInModification (const ConversionModification& modif
     return findIn (getEditorRenderer<juce::ARAEditorRenderer>());
 }
 
+bool Processor::canControlTransport() const
+{
+    if (auto* hostPlayHead = const_cast<Processor*> (this)->getPlayHead())
+        return hostPlayHead->canControlTransport();
+
+    return false;
+}
+
+void Processor::setTransportPlaying (bool shouldPlay)
+{
+    if (auto* hostPlayHead = getPlayHead(); hostPlayHead != nullptr && hostPlayHead->canControlTransport())
+        hostPlayHead->transportPlay (shouldPlay);
+}
+
+void Processor::rewindTransport()
+{
+    if (auto* hostPlayHead = getPlayHead(); hostPlayHead != nullptr && hostPlayHead->canControlTransport())
+        hostPlayHead->transportRewind();
+}
+
 void Processor::processBlock (juce::AudioBuffer<float>& buffer, juce::MidiBuffer&)
 {
     const juce::ScopedNoDenormals noDenormals;
@@ -291,10 +311,20 @@ void Processor::processBlock (juce::AudioBuffer<float>& buffer, juce::MidiBuffer
         auto seconds = -1.0;
 
         if (auto* hostPlayHead = getPlayHead())
+        {
             if (const auto hostPosition = hostPlayHead->getPosition())
+            {
                 if (hostPosition->getIsPlaying())
                     if (const auto timeInSeconds = hostPosition->getTimeInSeconds())
                         seconds = *timeInSeconds;
+
+                if (const auto bpm = hostPosition->getBpm())
+                    hostTempo.store (*bpm, std::memory_order_relaxed);
+
+                if (const auto signature = hostPosition->getTimeSignature())
+                    hostBeatsPerBar.store (signature->numerator, std::memory_order_relaxed);
+            }
+        }
 
         hostPositionSeconds.store (seconds, std::memory_order_relaxed);
     }

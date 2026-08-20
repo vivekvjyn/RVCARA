@@ -80,6 +80,25 @@ public:
     */
     [[nodiscard]] double getPlayheadInModification (const ConversionModification& modification) const;
 
+    /** @brief Whether the host lets a plug-in drive its transport, which not all of them do. */
+    [[nodiscard]] bool canControlTransport() const;
+
+    /** @brief True while the host says it is playing. */
+    [[nodiscard]] bool isTransportPlaying() const noexcept
+    {
+        return hostPositionSeconds.load (std::memory_order_relaxed) >= 0.0;
+    }
+
+    void setTransportPlaying (bool shouldPlay);
+
+    void rewindTransport();
+
+    /** @brief The host's tempo, or zero when it offers none. */
+    [[nodiscard]] double getHostTempo() const noexcept { return hostTempo.load (std::memory_order_relaxed); }
+
+    /** @brief The host's time signature numerator, or zero when it offers none. */
+    [[nodiscard]] int getHostBeatsPerBar() const noexcept { return hostBeatsPerBar.load (std::memory_order_relaxed); }
+
 private:
     static juce::AudioProcessorValueTreeState::ParameterLayout createParameterLayout();
 
@@ -99,6 +118,8 @@ private:
     InsertConverter insertConverter;
 
     std::atomic<double> hostPositionSeconds { -1.0 };
+    std::atomic<double> hostTempo { 0.0 };
+    std::atomic<int> hostBeatsPerBar { 0 };
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (Processor)
 };

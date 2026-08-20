@@ -68,17 +68,28 @@ private:
     void chooseTool (PitchTrack::Tool tool);
     void setPanelShown (bool isShown);
     void setOverviewShown (bool isShown);
+    void showBeatMenu();
+    void showGridMenu();
+    void applyTimeline();
 
     void paintHeader (juce::Graphics& graphics, juce::Rectangle<int> bounds) const;
+    void paintOverChildren (juce::Graphics& graphics) override;
 
     Processor& processorReference;
 
     PanelLookAndFeel lookAndFeel;
 
+    IconButton stopButton { IconButton::Icon::stop, "Stop" };
+    IconButton playButton { IconButton::Icon::play, "Play" };
+    IconButton loopButton { IconButton::Icon::loop, "Loop" };
+
     IconButton selectButton { IconButton::Icon::select, "Select" };
     IconButton splitButton { IconButton::Icon::split, "Split" };
-    IconButton glueButton { IconButton::Icon::glue, "Glue" };
-    IconButton snapButton { IconButton::Icon::magnet, "Snap to scale" };
+    IconButton anchorButton { IconButton::Icon::anchor, "Anchor" };
+    IconButton timingButton { IconButton::Icon::timing, "Timing" };
+
+    IconButton quantizeButton { IconButton::Icon::magnet, "Quantize" };
+    IconButton auditionButton { IconButton::Icon::audition, "Audition" };
     IconButton undoButton { IconButton::Icon::undo, "Undo" };
     IconButton redoButton { IconButton::Icon::redo, "Redo" };
     IconButton panelButton { IconButton::Icon::panel, "Parameters" };
@@ -92,6 +103,7 @@ private:
 
     juce::Rectangle<int> headerBounds;
     juce::Rectangle<int> toolCapsule;
+    juce::Rectangle<int> transportCapsule;
 
     int scaleRoot { 0 };
     int scaleMode { 1 };
@@ -99,6 +111,15 @@ private:
     bool snapWhileDragging { true };
     bool isPanelShown { true };
     bool isOverviewShown { true };
+    bool isLooping { false };
+    bool isAuditioning { true };
+    bool showBeats { false };
+    bool snapCycle { false };
+    int beatsPerBar { 4 };
+    int beatUnit { 4 };
+    double tempo { 120.0 };
+    int gridDivision { 4 };
+    double brightness { 100.0 };
 
     /** @brief The region the editor is showing, so an edit lands on what the user was looking at. */
     ConversionModification* shownModification { nullptr };

@@ -54,6 +54,9 @@ namespace
     /** @brief A band has to be dragged this far before it selects rather than deselects. */
     constexpr float minimumBandPixels = 3.0f;
 
+    /** @brief How many frames either side of the mouse the anchor tool eases its change over. */
+    constexpr int curveBrushFrames = 4;
+
     bool isBlackKey (int midiNote)
     {
         static const bool black[] = { false, true, false, true, false, false, true, false, true, false, true, false };
@@ -555,6 +558,9 @@ void PitchTrack::resetSelection()
         note.tiltRight = 0.0f;
     }
 
+    if (getNumSelected() == 0)
+        edit.curveOffsetSemitones.clear();
+
     commitGesture();
 }
 
@@ -563,6 +569,27 @@ void PitchTrack::mouseDown (const juce::MouseEvent& event)
     grabKeyboardFocus();
 
     const auto position = event.position;
+
+    if (tool == Tool::anchor)
+    {
+        beginGesture();
+        drag = Drag::curve;
+        drawCurveAt (position);
+        return;
+    }
+
+    if (tool == Tool::timing)
+    {
+        const auto boundary = getBoundaryNear (position.x);
+
+        if (boundary < 0)
+            return;
+
+        beginGesture();
+        drag = Drag::boundary;
+        draggedNote = boundary;
+        return;
+    }
 
     if (tool == Tool::select)
     {
@@ -637,25 +664,6 @@ void PitchTrack::mouseDown (const juce::MouseEvent& event)
         return;
     }
 
-    if (tool == Tool::glue)
-    {
-        if (index + 1 >= static_cast<int> (edit.notes.size()))
-            return;
-
-        beginGesture();
-
-        const auto& next = edit.notes[static_cast<std::size_t> (index) + 1];
-        note.endSeconds = next.endSeconds;
-        note.isRest = note.isRest && next.isRest;
-
-        edit.notes.erase (edit.notes.begin() + index + 1);
-        selection.assign (edit.notes.size(), 0);
-
-        refreshSungNote (index);
-
-        commitGesture();
-        return;
-    }
 
     const auto hasNext = index + 1 < static_cast<int> (edit.notes.size());
     const auto nearOwnEnd = isNearBoundary (note, position.x);
@@ -737,6 +745,12 @@ void PitchTrack::mouseDrag (const juce::MouseEvent& event)
         return;
     }
 
+    if (drag == Drag::curve)
+    {
+        drawCurveAt (event.position);
+        return;
+    }
+
     if (drag == Drag::none || draggedNote < 0)
         return;
 
@@ -764,7 +778,12 @@ void PitchTrack::mouseDrag (const juce::MouseEvent& event)
         auto& note = edit.notes[static_cast<std::size_t> (draggedNote)];
         auto& next = edit.notes[static_cast<std::size_t> (draggedNote) + 1];
 
-        const auto moved = std::clamp (getSecondsForX (event.position.x),
+        auto wanted = getSecondsForX (event.position.x);
+
+        if (gridSeconds > 0.0 && ! event.mods.isShiftDown())
+            wanted = std::round (wanted / gridSeconds) * gridSeconds;
+
+        const auto moved = std::clamp (wanted,
                                        note.startSeconds + minimumNoteSeconds,
                                        next.endSeconds - minimumNoteSeconds);
 
@@ -797,6 +816,71 @@ void PitchTrack::mouseDrag (const juce::MouseEvent& event)
     for (std::size_t index = 0; index < dragNotes.size(); ++index)
         edit.notes[static_cast<std::size_t> (dragNotes[index])].offsetSemitones =
             dragStartOffsets[index] + delta;
+
+    repaint();
+}
+
+int PitchTrack::getBoundaryNear (float x) const
+{
+    auto nearest = -1;
+    auto nearestDistance = std::numeric_limits<float>::max();
+
+    for (int index = 0; index + 1 < static_cast<int> (edit.notes.size()); ++index)
+    {
+        const auto distance = std::abs (getXForSeconds (edit.notes[static_cast<std::size_t> (index)].endSeconds) - x);
+
+        if (distance < nearestDistance)
+        {
+            nearestDistance = distance;
+            nearest = index;
+        }
+    }
+
+    return nearestDistance <= edgeGrabPixels * 4.0f ? nearest : -1;
+}
+
+void PitchTrack::drawCurveAt (juce::Point<float> position)
+{
+    if (conversion == nullptr || conversion->pitchFrameRate <= 0.0)
+        return;
+
+    const auto& sung = conversion->fundamentalFrequencyHz;
+
+    if (sung.empty())
+        return;
+
+    edit.curveFrameRate = conversion->pitchFrameRate;
+    edit.curveOffsetSemitones.resize (sung.size(), 0.0f);
+
+    const auto frame = static_cast<int> (std::llround (getSecondsForX (position.x)
+                                                       * conversion->pitchFrameRate));
+
+    if (frame < 0 || frame >= static_cast<int> (sung.size()))
+        return;
+
+    const auto wanted = getMidiNoteForY (position.y) - getDisplayShift();
+    const auto here = sung[static_cast<std::size_t> (frame)];
+
+    if (here <= 0.0f)
+        return;
+
+    // What is already drawn is part of where the curve sits, so the change is measured against
+    // the curve as it is and eased outward rather than stamped on.
+    const auto current = static_cast<float> (hzToMidiNote (static_cast<double> (here)));
+    const auto change = wanted - current;
+
+    for (int offset = -curveBrushFrames; offset <= curveBrushFrames; ++offset)
+    {
+        const auto target = frame + offset;
+
+        if (target < 0 || target >= static_cast<int> (edit.curveOffsetSemitones.size()))
+            continue;
+
+        const auto weight = 1.0f - std::abs (static_cast<float> (offset))
+                                       / static_cast<float> (curveBrushFrames + 1);
+
+        edit.curveOffsetSemitones[static_cast<std::size_t> (target)] += change * weight;
+    }
 
     repaint();
 }
@@ -846,9 +930,15 @@ void PitchTrack::mouseMove (const juce::MouseEvent& event)
         return;
     }
 
-    if (tool == Tool::glue)
+    if (tool == Tool::anchor)
     {
-        setMouseCursor (juce::MouseCursor::PointingHandCursor);
+        setMouseCursor (juce::MouseCursor::CrosshairCursor);
+        return;
+    }
+
+    if (tool == Tool::timing)
+    {
+        setMouseCursor (juce::MouseCursor::LeftRightResizeCursor);
         return;
     }
 
