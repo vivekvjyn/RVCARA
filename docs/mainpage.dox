@@ -84,28 +84,29 @@ On Linux, JUCE needs ALSA, FreeType, Fontconfig, X11 and GL development packages
 
 @section voices Voices
 
-A voice is a directory under `res/models/<name>/` holding `synthesizer.onnx`, `retrieval.bin`
-(the timbre codebook) and `manifest.json`.
+A voice is a directory under `res/models/<name>/` holding `hifigan.onnx`, `retrieval.bin` (the
+timbre codebook) and `manifest.json`.
 
-The synthesiser is RVC v2's `SynthesizerTrnMs768NSFsid` whole: a text encoder over the content
-features, a posterior encoder, a residual coupling flow, and only then `GeneratorNSF`, the NSF
-HiFi-GAN that makes the samples. Calling the file a vocoder named its last stage after the
-whole of it, so it is named for the model it is. A manifest that still says `vocoder` is read
-as it always was.
+Every model file is named for its architecture, and what a graph is *to the pipeline* — content
+encoder, pitch estimator, vocoder — is the role the manifest names it by. The two are separate:
+the voice's graph is RVC v2's `SynthesizerTrnMs768NSFsid`, a text encoder over the content
+features, a posterior encoder, a residual coupling flow and then `GeneratorNSF`, so it plays the
+role of the vocoder and is named for the NSF HiFi-GAN it generates through.
 
-Two of the graphs the pipeline runs are not the voice at all. The content encoder is ContentVec
+Two of the graphs the pipeline runs are not the voice at all. The content encoder is a HuBERT
 and the pitch estimator is RMVPE; neither is fine-tuned per singer, and between them they are 740 MB of a voice's 1.2 GB. Each therefore gets a directory
 of its own beside the voices, named for its model and laid out the way `GAME/` is:
 
 @code
-res/models/ContentVec/  config.json  contentvec.onnx
-res/models/RMVPE/       config.json  rmvpe.onnx  mel_filter_bank.bin
+res/models/HuBERT/  config.json  hubert.onnx
+res/models/RMVPE/   config.json  rmvpe.onnx  mel_filter_bank.bin
 @endcode
 
-RVC ships the encoder as `hubert_base.pt`, which is a misnomer it inherited: the weights are
-ContentVec, a HuBERT trained to leave the speaker out of its features, not Facebook's HuBERT.
-The directory and the file are named for the model rather than for RVC's filename, and a loose
-`hubert_base.onnx` beside the voices is still found.
+The encoder's architecture is HuBERT; the weights it carries are ContentVec's, a HuBERT trained
+to leave the speaker out of its features rather than Facebook's. RVC ships it as
+`hubert_base.pt`. The directory and the file are named for the architecture, and a loose
+`hubert_base.onnx` or `contentvec.onnx` beside the voices is still found, as is a directory left
+behind under the older name.
 
 A model that is not the voice describes itself rather than being described by every voice that
 borrows it, which is what the `config.json` is for. rvcara::ContentEncoderManifest carries the
@@ -113,7 +114,7 @@ graph's two tensor names, the rate and frame rate it works at, and the width of 
 returns. rvcara::PitchEstimatorManifest carries its tensor names, its whole mel front end — the
 filter bank included, since which filter bank RMVPE wants is RMVPE's business — and the
 constants its salience map is decoded with. What stays in the voice's manifest is what is
-actually the voice: the vocoder, the codebook, the coarse pitch embedding it was trained with,
+actually the voice: the generator, the codebook, the coarse pitch embedding it was trained with,
 the chunking and the defaults.
 
 rvcara::VoiceModel resolves each graph in turn: the voice's own copy, then the model's
@@ -134,7 +135,7 @@ rvcara::VoiceModelLibrary searches, in increasing precedence: the shared applica
 directory, the user's application data directory, this working copy's `res/models` (compiled
 in at configure time, since a plug-in cannot reach the repository by a relative path), and any
 path in `RVCARA_MODEL_PATH`. The same search finds the models that are not voices, which is how
-`ContentVec/`, `RMVPE/` and `GAME/` are located; only directories carrying a `manifest.json`
+`HuBERT/`, `RMVPE/` and `GAME/` are located; only directories carrying a `manifest.json`
 are offered as voices, so none of the three ever appears in the selector.
 
 Every pipeline constant lives in `manifest.json`, so a model trained at another sample rate or
@@ -230,12 +231,12 @@ Measured stage by stage on a Ryzen 7 5800HS (8 cores) converting 37 seconds of v
 
 | Stage | Time | Share |
 | --- | --- | --- |
-| Synthesiser | 15.05 s | 71.3% |
+| Vocoder | 15.05 s | 71.3% |
 | Content encoder | 3.31 s | 15.7% |
 | Pitch estimator | 1.36 s | 6.4% |
 | Resamplers, retrieval, filter | 1.40 s | 6.7% |
 
-The synthesiser's 400-times upsampling to 40 kHz is the whole cost; making everything else
+The vocoder's 400-times upsampling to 40 kHz is the whole cost; making everything else
 infinitely fast would buy 7%. ONNX Runtime's intra-op thread count is set to the number of
 physical cores rather than its own default of hardware threads, which is 8% faster end to end.
 

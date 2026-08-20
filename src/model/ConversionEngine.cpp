@@ -225,7 +225,7 @@ std::vector<float> ConversionEngine::synthesise (const std::vector<float>& conte
     const std::int64_t numFramesValue = numFrames;
     const std::int64_t speakerIdValue = manifest.speakerId;
 
-    const auto& names = manifest.synthesizerInputs;
+    const auto& names = manifest.vocoderInputs;
 
     const std::vector<OnnxSession::TensorView> inputs {
         OnnxSession::TensorView::floats (names[0].c_str(), contentFeatures.data(),
@@ -238,13 +238,13 @@ std::vector<float> ConversionEngine::synthesise (const std::vector<float>& conte
                                         { 1, manifest.latentDim, numFrames }),
     };
 
-    const std::vector<const char*> outputs { manifest.synthesizerOutput.c_str() };
+    const std::vector<const char*> outputs { manifest.vocoderOutput.c_str() };
 
-    auto returned = voiceModel.getSynthesizer().run (inputs, outputs);
+    auto returned = voiceModel.getVocoder().run (inputs, outputs);
 
     if (returned.empty())
     {
-        error = "the synthesiser failed: " + voiceModel.getSynthesizer().getError();
+        error = "the vocoder failed: " + voiceModel.getVocoder().getError();
         return {};
     }
 

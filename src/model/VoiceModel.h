@@ -17,8 +17,8 @@ namespace rvcara
 {
 /** @brief One loaded voice: three graphs, two matrices, and the manifest tying them together.
 
-    Only the synthesiser is the voice. The content encoder and the pitch estimator are borrowed
-    from the models installed beside it, which is why they are held by pointer.
+    Only the vocoder is the voice. The content encoder and the pitch estimator are borrowed from
+    the models installed beside it, which is why they are held by pointer.
 */
 class VoiceModel
 {
@@ -39,7 +39,7 @@ public:
     [[nodiscard]] const juce::File& getDirectory() const noexcept { return sourceDirectory; }
 
     [[nodiscard]] const OnnxSession& getContentEncoder() const noexcept { return *contentEncoder; }
-    [[nodiscard]] const OnnxSession& getSynthesizer() const noexcept { return synthesizer; }
+    [[nodiscard]] const OnnxSession& getVocoder() const noexcept { return vocoder; }
     [[nodiscard]] const PitchEstimator& getPitchEstimator() const noexcept { return *pitchEstimator; }
     [[nodiscard]] const ZeroPhaseFilter& getInputFilter() const noexcept { return inputFilter; }
 
@@ -60,7 +60,7 @@ private:
     std::shared_ptr<const OnnxSession> contentEncoder;
     std::shared_ptr<const OnnxSession> pitchNetwork;
 
-    OnnxSession synthesizer;
+    OnnxSession vocoder;
 
     BinaryMatrix melFilterBank;
     BinaryMatrix codebook;

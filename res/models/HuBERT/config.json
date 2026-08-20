@@ -1,9 +1,9 @@
 {
     "schemaVersion": 1,
-    "model": "ContentVec",
-    "description": "ContentVec, which RVC ships as hubert_base.pt; a HuBERT trained to drop the speaker",
+    "model": "HuBERT",
+    "description": "HuBERT carrying ContentVec's weights, which RVC ships as hubert_base.pt",
     "graph": {
-        "file": "contentvec.onnx",
+        "file": "hubert.onnx",
         "input": "audio",
         "output": "features"
     },

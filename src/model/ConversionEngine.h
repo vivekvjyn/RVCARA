@@ -12,7 +12,7 @@
 
 namespace rvcara
 {
-/** @brief Converts a whole performance through a voice: resample, pitch, content, retrieval, synthesis. */
+/** @brief Converts a whole performance through a voice: resample, pitch, content, retrieval, vocoder. */
 class ConversionEngine
 {
 public:

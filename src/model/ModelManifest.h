@@ -13,16 +13,19 @@ namespace rvcara
 {
 /** @brief What a content encoder installed beside the voices says about itself.
 
-    The encoder is ContentVec-initialised HuBERT and is the same graph whichever voice is
-    loaded, so it is installed once and describes itself rather than being described by every
+    The encoder is HuBERT, carrying ContentVec's weights, and is the same graph whichever voice
+    is loaded, so it is installed once and describes itself rather than being described by every
     voice that borrows it.
 */
 struct ContentEncoderManifest
 {
     static constexpr int supportedSchemaVersion = 1;
 
-    /** @brief The directory it is installed in, named for the model rather than the file. */
-    static constexpr const char* directoryName = "ContentVec";
+    /** @brief The directory it is installed in, named for the architecture. */
+    static constexpr const char* directoryName = "HuBERT";
+
+    /** @brief What the same directory was called when it was named for the weights. */
+    static constexpr const char* legacyDirectoryName = "ContentVec";
 
     juce::String graphFile;
     std::string inputName;
@@ -46,6 +49,8 @@ struct PitchEstimatorManifest
     static constexpr int supportedSchemaVersion = 1;
 
     static constexpr const char* directoryName = "RMVPE";
+
+    static constexpr const char* legacyDirectoryName = "RMVPE";
 
     juce::String graphFile;
     juce::String filterBankFile;
@@ -84,14 +89,14 @@ struct ModelManifest
 
     juce::String contentEncoderFile;
     juce::String pitchEstimatorFile;
-    juce::String synthesizerFile;
+    juce::String vocoderFile;
 
     std::string contentEncoderInput;
     std::string contentEncoderOutput;
     std::string pitchEstimatorInput;
     std::string pitchEstimatorOutput;
-    std::vector<std::string> synthesizerInputs;
-    std::string synthesizerOutput;
+    std::vector<std::string> vocoderInputs;
+    std::string vocoderOutput;
 
     int contentSampleRate { 16000 };
     int contentFrameRate { 50 };

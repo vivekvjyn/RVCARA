@@ -11,14 +11,14 @@ namespace rvcara
 {
 namespace
 {
-    /** @brief The names the two universal graphs carry upstream, used when one is installed
-               loose beside the voices rather than in a directory of its own.
+    /** @brief The architecture each shared graph is named for, used when one is installed loose
+               beside the voices rather than in a directory of its own.
     */
-    constexpr const char* sharedContentEncoderFile = "contentvec.onnx";
+    constexpr const char* sharedContentEncoderFile = "hubert.onnx";
     constexpr const char* sharedPitchEstimatorFile = "rmvpe.onnx";
 
-    /** @brief What RVC calls the content encoder, which is a misnomer worth still answering to. */
-    constexpr const char* legacyContentEncoderFile = "hubert_base.onnx";
+    /** @brief What the encoder has been called elsewhere: RVC's filename, and its weights. */
+    constexpr const char* legacyContentEncoderFiles[] { "hubert_base.onnx", "contentvec.onnx" };
 
     constexpr const char* sharedConfigurationFile = "config.json";
 
@@ -51,11 +51,14 @@ namespace
         if (const auto own = directory.getChildFile (named); own.existsAsFile())
             return { own, std::nullopt };
 
-        const auto assetDirectory = VoiceModelLibrary::findAssetDirectory (Manifest::directoryName);
-
-        if (const auto configuration = assetDirectory.getChildFile (sharedConfigurationFile);
-            configuration.existsAsFile())
+        for (const auto* directoryName : { Manifest::directoryName, Manifest::legacyDirectoryName })
         {
+            const auto assetDirectory = VoiceModelLibrary::findAssetDirectory (directoryName);
+            const auto configuration = assetDirectory.getChildFile (sharedConfigurationFile);
+
+            if (! configuration.existsAsFile())
+                continue;
+
             auto shared = Manifest::parse (configuration, error);
 
             if (! shared.has_value())
@@ -126,9 +129,10 @@ std::unique_ptr<VoiceModel> VoiceModel::load (const juce::File& directory,
     auto contentEncoder = findGraph<ContentEncoderManifest> (
         directory, manifest.contentEncoderFile, sharedContentEncoderFile, error);
 
-    if (error.isEmpty() && ! contentEncoder.file.existsAsFile())
-        contentEncoder = findGraph<ContentEncoderManifest> (
-            directory, manifest.contentEncoderFile, legacyContentEncoderFile, error);
+    for (const auto* legacyFile : legacyContentEncoderFiles)
+        if (error.isEmpty() && ! contentEncoder.file.existsAsFile())
+            contentEncoder = findGraph<ContentEncoderManifest> (
+                directory, manifest.contentEncoderFile, legacyFile, error);
 
     if (error.isNotEmpty())
         return nullptr;
@@ -167,19 +171,19 @@ std::unique_ptr<VoiceModel> VoiceModel::load (const juce::File& directory,
     if (error.isNotEmpty())
         return nullptr;
 
-    if (! model->synthesizer.load (directory.getChildFile (manifest.synthesizerFile), numThreads))
+    if (! model->vocoder.load (directory.getChildFile (manifest.vocoderFile), numThreads))
     {
-        error = model->synthesizer.getError();
+        error = model->vocoder.getError();
         return nullptr;
     }
 
-    constexpr int expectedNumSynthesizerInputs = 6;
+    constexpr int expectedNumVocoderInputs = 6;
 
-    if (static_cast<int> (manifest.synthesizerInputs.size()) != expectedNumSynthesizerInputs)
+    if (static_cast<int> (manifest.vocoderInputs.size()) != expectedNumVocoderInputs)
     {
-        error = "the synthesiser declares "
-              + juce::String (static_cast<int> (manifest.synthesizerInputs.size()))
-              + " inputs, expected " + juce::String (expectedNumSynthesizerInputs);
+        error = "the vocoder declares "
+              + juce::String (static_cast<int> (manifest.vocoderInputs.size()))
+              + " inputs, expected " + juce::String (expectedNumVocoderInputs);
         return nullptr;
     }
 
