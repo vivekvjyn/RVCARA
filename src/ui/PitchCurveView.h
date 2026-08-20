@@ -9,8 +9,8 @@
 
 namespace rvcara
 {
-/** @brief The pitch editor: a piano keyboard and a time ruler pinned around a scrolling note
-           grid, with a waveform lane beneath it and a zoom scaler for each axis.
+/** @brief The pitch editor: a toolbar over a piano keyboard and a time ruler pinned around a
+           scrolling note grid, with a waveform lane beneath it and a zoom scaler for each axis.
 
     The keyboard, ruler and waveform are painted rather than made components of their own,
     offset by the viewport's scroll position: the keyboard follows the vertical scroll, the
@@ -23,6 +23,18 @@ public:
 
     /** @brief Shows a conversion, or clears the editor when given nullptr. */
     void setConversion (ConversionPointer conversion);
+
+    /** @brief Shows a note list, unless the user is in the middle of changing it. */
+    void setPitchEdit (PitchEdit edit);
+
+    /** @brief Turns the editing tools on, which only an ARA host can support. */
+    void setEditingEnabled (bool isEnabled);
+
+    /** @brief Says how note detection is getting on, shown at the end of the toolbar. */
+    void setNoteStatus (const juce::String& status);
+
+    /** @brief Called with the new note list whenever the user finishes changing it. */
+    std::function<void (const PitchEdit&)> onEditChanged;
 
     /** @brief Shows a line or two of text over the editor.
         @param caption  What to say, or empty to show the editor alone.
@@ -48,16 +60,24 @@ private:
     };
 
     static constexpr int keyboardWidth = 38;
+    static constexpr int toolbarHeight = 26;
     static constexpr int rulerHeight = 18;
     static constexpr int waveformHeight = 42;
     static constexpr int scalerHeight = 16;
     static constexpr int scrollBarThickness = 10;
     static constexpr int waveformResolution = 4096;
 
+    static constexpr int toolButtonWidth = 54;
+
     void applyZoom();
     void rebuildWaveform();
     void scrollToContent();
 
+    void chooseTool (PitchTrack::Tool tool);
+    void applySelectionDepth();
+    void updateToolbar();
+
+    void paintToolbar (juce::Graphics& graphics, juce::Rectangle<int> bounds) const;
     void paintKeyboard (juce::Graphics& graphics, juce::Rectangle<int> bounds) const;
     void paintRuler (juce::Graphics& graphics, juce::Rectangle<int> bounds) const;
     void paintWaveform (juce::Graphics& graphics, juce::Rectangle<int> bounds) const;
@@ -66,17 +86,31 @@ private:
     ScrollReportingViewport viewport;
     PitchTrack track;
 
+    juce::TextButton selectButton { "Select" };
+    juce::TextButton splitButton { "Split" };
+    juce::TextButton glueButton { "Glue" };
+    juce::TextButton snapButton { "Snap" };
+    juce::TextButton resetButton { "Reset" };
+    juce::TextButton undoButton { "Undo" };
+    juce::TextButton redoButton { "Redo" };
+
+    juce::Slider shapeSlider { juce::Slider::LinearHorizontal, juce::Slider::NoTextBox };
+
     juce::Slider horizontalScaler { juce::Slider::LinearHorizontal, juce::Slider::NoTextBox };
     juce::Slider verticalScaler { juce::Slider::LinearHorizontal, juce::Slider::NoTextBox };
 
     ConversionPointer conversion;
     std::vector<float> waveform;
 
+    juce::Rectangle<int> shapeLabelBounds;
+    juce::Rectangle<int> noteStatusBounds;
     juce::Rectangle<int> timeLabelBounds;
     juce::Rectangle<int> pitchLabelBounds;
 
+    juce::String noteStatus;
     juce::String caption;
     bool isCaptionAlert { false };
+    bool isEditingEnabled { true };
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (PitchCurveView)
 };

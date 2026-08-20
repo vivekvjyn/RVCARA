@@ -69,13 +69,15 @@ void PanelLookAndFeel::drawButtonBackground (juce::Graphics& graphics,
                                              bool shouldDrawAsDown)
 {
     const auto bounds = button.getLocalBounds().toFloat().reduced (0.5f);
+    const auto isLatched = button.getToggleState();
 
-    graphics.setColour (shouldDrawAsDown        ? Palette::accent.withAlpha (0.22f)
-                        : shouldDrawAsHighlighted ? Palette::edge
-                                                  : Palette::well);
+    graphics.setColour (shouldDrawAsDown || isLatched ? Palette::accent.withAlpha (0.22f)
+                        : shouldDrawAsHighlighted     ? Palette::edge
+                                                      : Palette::well);
     graphics.fillRect (bounds);
 
-    graphics.setColour (shouldDrawAsHighlighted || shouldDrawAsDown ? Palette::accent : Palette::edge);
+    graphics.setColour (shouldDrawAsHighlighted || shouldDrawAsDown || isLatched ? Palette::accent
+                                                                                : Palette::edge);
     graphics.drawRect (bounds, Metrics::hairline);
 }
 

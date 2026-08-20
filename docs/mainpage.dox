@@ -32,9 +32,9 @@ and includes are path-qualified so a file's dependencies name their layer.
 | Directory | Contents |
 | --- | --- |
 | `src/` | rvcara::Processor, rvcara::Editor |
-| `src/common/` | rvcara::ConversionSettings, rvcara::BinaryMatrix |
+| `src/common/` | rvcara::ConversionSettings, rvcara::PitchEdit, rvcara::BinaryMatrix |
 | `src/dsp/` | rvcara::SincResampler, rvcara::ZeroPhaseFilter, rvcara::MelSpectrogram, pitch maths |
-| `src/model/` | rvcara::VoiceModel, rvcara::ConversionEngine, rvcara::VoiceLoader, sessions, manifest |
+| `src/model/` | rvcara::VoiceModel, rvcara::ConversionEngine, rvcara::NoteSegmenter, rvcara::VoiceLoader, sessions, manifest |
 | `src/ara/` | rvcara::DocumentController, rvcara::PlaybackRenderer, rvcara::ConversionModification |
 | `src/insert/` | rvcara::InsertConverter |
 | `src/ui/` | rvcara::PanelLookAndFeel, rvcara::PitchCurveView, rvcara::PitchTrack |
@@ -74,6 +74,12 @@ are the whole of what it runs. That costs:
 
 `-DRVCARA_ONNXRUNTIME_ROOT=<path>` skips all of it and uses an existing installation.
 
+The note segmentation model is a pretrained asset rather than source, so it cannot be a
+submodule. The configure step downloads GAME's 45 MB small ONNX release into `res/models/GAME`
+once, which `.gitignore` covers along with every other model. `-DRVCARA_FETCH_NOTE_MODEL=OFF`
+stops it trying, and `-DRVCARA_NOTE_MODEL_URL=<url>` points it somewhere else. Without the
+model everything still builds and converts; the editor reports that it found no notes.
+
 On Linux, JUCE needs ALSA, FreeType, Fontconfig, X11 and GL development packages.
 
 @section voices Voices
@@ -86,10 +92,36 @@ codebook) and `manifest.json`.
 rvcara::VoiceModelLibrary searches, in increasing precedence: the shared application data
 directory, the user's application data directory, this working copy's `res/models` (compiled
 in at configure time, since a plug-in cannot reach the repository by a relative path), and any
-path in `RVCARA_MODEL_PATH`.
+path in `RVCARA_MODEL_PATH`. The same search finds the shared assets that are not voices,
+which is how `GAME/` is located.
 
 Every pipeline constant lives in `manifest.json`, so a model trained at another sample rate or
 feature width loads without a plug-in release. The ONNX tensor names are read from it too.
+
+@section notes Notes
+
+RVC conditions its vocoder on a fundamental track rather than on the source waveform's
+partials, so the melody is an input the plug-in owns outright. Editing it is therefore just
+editing that track before it reaches the vocoder, and the result is re-sung rather than
+time-stretched or resampled.
+
+To edit a melody by note, the take first has to be split into notes.
+rvcara::NoteSegmenter does that with GAME, OpenVPI's Generative Adaptive MIDI Extractor: an
+encoder embeds the waveform at one frame per ten milliseconds, a discrete diffusion segmenter
+proposes the boundaries between notes and refines them over two passes, a third graph turns
+those boundaries into durations, and an estimator names each note's pitch and says whether
+anything was sung in it. A take longer than the encoder accepts is cut at its silences first.
+
+The notes live on the audio modification, so they are per region and survive a session save.
+Detection is a job of its own on a thread of its own, so notes arrive while the voice is still
+converting rather than after it.
+
+rvcara::EditedNote stores what the user did to a note as an offset from what was sung rather
+than as an absolute pitch, together with a depth that says how much of the sung contour to
+keep. An untouched note therefore has an offset of zero at full depth, which rvcara::applyPitchEdit
+leaves bit for bit alone; a note that has been moved keeps its own vibrato and scooping, moved
+bodily onto the new pitch. A note's centre is its median rather than its mean, so a slide into
+it does not drag the answer along.
 
 @section panel The panel
 
@@ -97,14 +129,28 @@ A header carrying the model selector, the pitch editor, and a footer reporting s
 selector is the only control that changes what is rendered; the two scalers beside it scale
 the view, not the audio.
 
-The editor is laid out as a piano roll. A keyboard column is pinned to the left, a time ruler
-across the top, and a waveform lane along the bottom; between them the note grid scrolls on
-both axes, with one row per semitone from C2 to C6. Each sung note becomes a block on the row
-it centres on, and the pitch curve the model actually followed is drawn through it, so vibrato,
-scooping and a note that landed a semitone out are all visible against the row it should have
-sat on. The keyboard follows the vertical scroll and the ruler and waveform the horizontal one,
-so each stays pinned to the axis it labels. Opening a conversion centres the view on the sung
-range.
+The editor is laid out as a piano roll. A toolbar runs across the top, a keyboard column is
+pinned to the left, a time ruler under the toolbar, and a waveform lane along the bottom;
+between them the note grid scrolls on both axes, with one row per semitone from C2 to C6. Each
+note becomes a block on the row it will be heard on, the melody the voice sang is drawn through
+the blocks and the melody the take was sung at behind it, so vibrato, scooping and a note that
+landed a semitone out are all visible against the row it should have sat on. The converted
+waveform runs along the middle C line behind everything. The keyboard follows the vertical
+scroll and the ruler and waveform the horizontal one, so each stays pinned to the axis it
+labels. Opening a conversion centres the view on the sung range.
+
+Dragging a block moves the note; without shift held it lands on the nearest semitone, with
+shift it moves freely. Dragging where two blocks meet moves the boundary between them. Select
+splits the difference between one note and several: shift or command adds to the selection, and
+a tool that acts on nothing selected acts on every note. Split cuts a note where it is clicked
+and Glue joins a note to the one after it. Snap puts the selection on the nearest semitones,
+Shape says how much of the sung contour survives — all the way down to a dead flat note — and
+Reset puts the selection back the way it was sung. Undo and redo cover every gesture, and the
+arrow keys nudge by a semitone, or by a tenth of one with shift held.
+
+An edit re-renders through the vocoder like any other setting, arriving progressively, so the
+edited note is audible before the rest of the region has finished. Editing needs the notes and
+the region, so it is offered under ARA only; loaded as an insert the editor still draws.
 
 There are no knobs. The parameters below still exist and the host can automate every one,
 reached through the generic parameter view.
@@ -145,7 +191,7 @@ is built and cached beside the model.
 
 @section verification Verification status
 
-- **Verified.** 38 GoogleTest cases pass. The exported assets match the reference
+- **Verified.** 48 GoogleTest cases pass. The exported assets match the reference
   implementation on real audio: pitch within 1.5 to 6.8 cents, correlation at least 0.999,
   log-mel distance 0.30 to 0.60, durations sample-exact. The DSP is checked against NumPy and
   SciPy through the fixtures in `tests/fixtures`, the mel spectrogram to 1e-3 and the
@@ -155,8 +201,15 @@ is built and cached beside the model.
   0.91, against 0.64 and 0.71 for the untouched source.
 - **Built and loads.** The VST3 builds with ARA enabled, carries its ARA main factory class,
   and dlopens cleanly.
-- **Not yet verified.** Behaviour in a real host: ARA region editing, session persistence, and
-  insert-mode capture alignment against the timeline.
+- **Verified outside a host.** Note detection on real singing: a sung C major scale comes back
+  as nineteen notes, rising then falling by the degrees of the scale, with rests at both ends,
+  in 0.42 s for 3.4 s of audio; a 37 s aria comes back as 49 notes in 6.8 s, cut at its
+  silences. Editing through the whole pipeline: a note moved by a fifth comes out of the
+  estimator seven semitones higher on every frame with its contour intact, a note at zero depth
+  comes out flat on its own median, and an edit nobody has touched returns the pitch track
+  unchanged value for value.
+- **Not yet verified.** Behaviour in a real host: ARA region editing, session persistence,
+  insert-mode capture alignment against the timeline, and the pitch editor's gestures.
 
 @section conventions Conventions
 
@@ -182,6 +235,7 @@ include JUCE. Every source in this repository is clean under the full strict tie
 @section licence Licence
 
 MIT. The submodules keep their own licences: JUCE is dual AGPL and commercial, the ARA SDK
-has Celemony's terms, ONNX Runtime and googletest are MIT and BSD, hnswlib is Apache 2.0. A
-voice carries the rights of the recordings it was trained on.
+has Celemony's terms, ONNX Runtime and googletest are MIT and BSD, hnswlib is Apache 2.0. GAME
+is MIT and is downloaded rather than redistributed here. A voice carries the rights of the
+recordings it was trained on.
 */

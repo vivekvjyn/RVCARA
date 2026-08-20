@@ -12,8 +12,8 @@ namespace
 }
 
 VoiceModelLibrary::VoiceModelLibrary()
+    : searchPaths (buildSearchPaths())
 {
-    buildSearchPaths();
 }
 
 juce::File VoiceModelLibrary::getUserModelDirectory()
@@ -23,18 +23,18 @@ juce::File VoiceModelLibrary::getUserModelDirectory()
         .getChildFile (modelsFolderName);
 }
 
-void VoiceModelLibrary::buildSearchPaths()
+std::vector<juce::File> VoiceModelLibrary::buildSearchPaths()
 {
-    searchPaths.clear();
+    std::vector<juce::File> paths;
 
-    searchPaths.push_back (juce::File::getSpecialLocation (juce::File::commonApplicationDataDirectory)
-                               .getChildFile (applicationFolderName)
-                               .getChildFile (modelsFolderName));
+    paths.push_back (juce::File::getSpecialLocation (juce::File::commonApplicationDataDirectory)
+                         .getChildFile (applicationFolderName)
+                         .getChildFile (modelsFolderName));
 
-    searchPaths.push_back (getUserModelDirectory());
+    paths.push_back (getUserModelDirectory());
 
    #if defined (RVCARA_DEVELOPMENT_MODEL_PATH)
-    searchPaths.push_back (juce::File { RVCARA_DEVELOPMENT_MODEL_PATH });
+    paths.push_back (juce::File { RVCARA_DEVELOPMENT_MODEL_PATH });
    #endif
 
     if (const auto extraPaths = juce::SystemStats::getEnvironmentVariable (environmentVariableName, {});
@@ -48,8 +48,28 @@ void VoiceModelLibrary::buildSearchPaths()
 
         for (const auto& path : juce::StringArray::fromTokens (extraPaths, separator, {}))
             if (path.isNotEmpty())
-                searchPaths.push_back (juce::File (path.trim()));
+                paths.push_back (juce::File (path.trim()));
     }
+
+    return paths;
+}
+
+juce::File VoiceModelLibrary::findAssetDirectory (const juce::String& name)
+{
+    juce::File firstCandidate;
+
+    for (const auto& searchPath : buildSearchPaths())
+    {
+        const auto candidate = searchPath.getChildFile (name);
+
+        if (candidate.isDirectory())
+            return candidate;
+
+        if (firstCandidate == juce::File())
+            firstCandidate = candidate;
+    }
+
+    return firstCandidate;
 }
 
 std::optional<VoiceModelLibrary::Entry> VoiceModelLibrary::describeDirectory (const juce::File& directory)

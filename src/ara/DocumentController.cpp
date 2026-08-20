@@ -3,41 +3,21 @@
 #include "ara/PlaybackRenderer.h"
 
 #include "model/ConversionEngine.h"
+#include "model/NoteSegmenter.h"
 
 #include <utility>
 
 namespace rvcara
 {
-class DocumentController::RenderJob final : public juce::ThreadPoolJob
+namespace
 {
-public:
-    RenderJob (DocumentController& ownerToUse,
-               ConversionModification& modificationToUse,
-               std::shared_ptr<const VoiceModel> voiceToUse,
-               double outputSampleRateToUse,
-               std::uint64_t generationToUse)
-        : juce::ThreadPoolJob ("convert " + juce::String (modificationToUse.getPersistentID())),
-          owner (ownerToUse),
-          modification (modificationToUse),
-          voice (std::move (voiceToUse)),
-          outputSampleRate (outputSampleRateToUse),
-          generation (generationToUse)
+    /** @brief Reads a whole audio source down to one channel, which is what both jobs analyse. */
+    std::vector<float> readMono (juce::ARAAudioSource* audioSource, juce::String& error)
     {
-    }
-
-    void requestAbort() noexcept { shouldAbort.store (true); }
-
-    JobStatus runJob() override
-    {
-        modification.setState (ConversionModification::State::rendering);
-        modification.setProgress (0.0f);
-
-        auto* audioSource = modification.getAudioSource();
-
-        if (audioSource == nullptr || voice == nullptr)
+        if (audioSource == nullptr)
         {
-            finish (nullptr, "no audio source or voice");
-            return jobHasFinished;
+            error = "no audio source";
+            return {};
         }
 
         const auto numSamples = static_cast<int> (audioSource->getSampleCount());
@@ -45,8 +25,8 @@ public:
 
         if (numSamples <= 0 || numChannels <= 0)
         {
-            finish (nullptr, "audio source is empty");
-            return jobHasFinished;
+            error = "audio source is empty";
+            return {};
         }
 
         juce::AudioBuffer<float> sourceAudio { numChannels, numSamples };
@@ -55,15 +35,9 @@ public:
 
             if (! reader.read (&sourceAudio, 0, numSamples, 0, true, true))
             {
-                finish (nullptr, "could not read the audio source");
-                return jobHasFinished;
+                error = "could not read the audio source";
+                return {};
             }
-        }
-
-        if (shouldAbort.load() || shouldExit())
-        {
-            finish (nullptr, {});
-            return jobHasFinished;
         }
 
         std::vector<float> mono (static_cast<std::size_t> (numSamples), 0.0f);
@@ -84,14 +58,77 @@ public:
                 sample *= scale;
         }
 
+        return mono;
+    }
+} // namespace
+
+/** @brief A pool job the controller can call off when what asked for it has changed. */
+class DocumentController::AbortableJob : public juce::ThreadPoolJob
+{
+public:
+    using juce::ThreadPoolJob::ThreadPoolJob;
+
+    virtual void requestAbort() noexcept = 0;
+};
+
+class DocumentController::RenderJob final : public AbortableJob
+{
+public:
+    RenderJob (DocumentController& ownerToUse,
+               ConversionModification& modificationToUse,
+               std::shared_ptr<const VoiceModel> voiceToUse,
+               PitchEdit editToUse,
+               double outputSampleRateToUse,
+               std::uint64_t generationToUse)
+        : AbortableJob ("convert " + juce::String (modificationToUse.getPersistentID())),
+          owner (ownerToUse),
+          modification (modificationToUse),
+          voice (std::move (voiceToUse)),
+          edit (std::move (editToUse)),
+          outputSampleRate (outputSampleRateToUse),
+          generation (generationToUse)
+    {
+    }
+
+    void requestAbort() noexcept override { shouldAbort.store (true); }
+
+    JobStatus runJob() override
+    {
+        modification.setState (ConversionModification::State::rendering);
+        modification.setProgress (0.0f);
+
+        auto* audioSource = modification.getAudioSource();
+
+        if (audioSource == nullptr || voice == nullptr)
+        {
+            finish (nullptr, "no audio source or voice");
+            return jobHasFinished;
+        }
+
+        juce::String readError;
+        auto mono = readMono (audioSource, readError);
+
+        if (mono.empty())
+        {
+            finish (nullptr, readError);
+            return jobHasFinished;
+        }
+
+        if (shouldAbort.load() || shouldExit())
+        {
+            finish (nullptr, {});
+            return jobHasFinished;
+        }
+
         const ConversionEngine converter { *voice };
 
         ConversionEngine::Request request;
         request.samples = mono.data();
-        request.numSamples = numSamples;
+        request.numSamples = static_cast<int> (mono.size());
         request.sampleRate = audioSource->getSampleRate();
         request.outputSampleRate = outputSampleRate;
         request.settings = modification.getSettings();
+        request.pitchEdit = &edit;
 
         auto outcome = converter.convert (
             request,
@@ -117,9 +154,11 @@ public:
         auto result = std::make_shared<ConversionResult>();
         result->samples = std::move (outcome.samples);
         result->fundamentalFrequencyHz = std::move (outcome.fundamentalFrequencyHz);
+        result->sourceFundamentalFrequencyHz = std::move (outcome.sourceFundamentalFrequencyHz);
         result->pitchFrameRate = outcome.pitchFrameRate;
         result->sampleRate = outputSampleRate;
         result->settings = request.settings;
+        result->pitchEdit = edit;
         result->voiceName = voice->getName();
 
         finish (std::move (result), {});
@@ -132,10 +171,12 @@ private:
         auto conversion = std::make_shared<ConversionResult>();
         conversion->samples = std::move (partial.samples);
         conversion->fundamentalFrequencyHz = std::move (partial.fundamentalFrequencyHz);
+        conversion->sourceFundamentalFrequencyHz = std::move (partial.sourceFundamentalFrequencyHz);
         conversion->pitchFrameRate = partial.pitchFrameRate;
         conversion->sampleRate = outputSampleRate;
         conversion->isPartial = true;
         conversion->settings = settings;
+        conversion->pitchEdit = edit;
         conversion->voiceName = voice->getName();
 
         juce::MessageManager::callAsync (
@@ -160,7 +201,74 @@ private:
     DocumentController& owner;
     ConversionModification& modification;
     std::shared_ptr<const VoiceModel> voice;
+    PitchEdit edit;
     double outputSampleRate;
+    std::uint64_t generation;
+    std::atomic<bool> shouldAbort { false };
+};
+
+class DocumentController::DetectJob final : public AbortableJob
+{
+public:
+    DetectJob (DocumentController& ownerToUse,
+               ConversionModification& modificationToUse,
+               std::uint64_t generationToUse)
+        : AbortableJob ("find notes in " + juce::String (modificationToUse.getPersistentID())),
+          owner (ownerToUse),
+          modification (modificationToUse),
+          generation (generationToUse)
+    {
+    }
+
+    void requestAbort() noexcept override { shouldAbort.store (true); }
+
+    JobStatus runJob() override
+    {
+        modification.setNoteState (ConversionModification::NoteState::finding);
+
+        juce::String error;
+        const auto segmenter = NoteSegmenter::getShared (error);
+
+        if (segmenter == nullptr)
+        {
+            finish ({}, error);
+            return jobHasFinished;
+        }
+
+        auto* audioSource = modification.getAudioSource();
+        auto mono = readMono (audioSource, error);
+
+        if (mono.empty() || shouldAbort.load() || shouldExit())
+        {
+            finish ({}, error);
+            return jobHasFinished;
+        }
+
+        PitchEdit edit;
+        edit.notes = segmenter->segment (mono.data(),
+                                         static_cast<int> (mono.size()),
+                                         audioSource->getSampleRate(),
+                                         shouldAbort,
+                                         error);
+
+        finish (std::move (edit), error);
+        return jobHasFinished;
+    }
+
+private:
+    void finish (PitchEdit edit, juce::String error)
+    {
+        juce::MessageManager::callAsync (
+            [ownerPointer = &owner, modificationPointer = &modification, jobGeneration = generation,
+             edit = std::move (edit), error = std::move (error)]() mutable
+            {
+                ownerPointer->completeDetection (modificationPointer, jobGeneration,
+                                                 std::move (edit), std::move (error));
+            });
+    }
+
+    DocumentController& owner;
+    ConversionModification& modification;
     std::uint64_t generation;
     std::atomic<bool> shouldAbort { false };
 };
@@ -177,6 +285,7 @@ DocumentController::DocumentController (const ARA::PlugIn::PlugInEntry* entry,
 DocumentController::~DocumentController()
 {
     loader.removeListener (this);
+    detectionPool.removeAllJobs (true, 10000);
     loader.getWorkerPool().removeAllJobs (true, 10000);
 }
 
@@ -219,7 +328,7 @@ std::vector<ConversionModification*> DocumentController::getModifications()
 
 void DocumentController::cancelRender (ConversionModification& modification)
 {
-    RenderJob* job = nullptr;
+    AbortableJob* job = nullptr;
 
     {
         const juce::ScopedLock lock { jobLock };
@@ -234,7 +343,7 @@ void DocumentController::cancelRender (ConversionModification& modification)
 
     job->requestAbort();
 
-    loader.getWorkerPool().waitForJobToFinish (job, 10000);
+    loader.getWorkerPool().removeJob (job, true, 10000);
 }
 
 void DocumentController::requestRender (ConversionModification& modification)
@@ -272,7 +381,8 @@ void DocumentController::requestRender (ConversionModification& modification)
     cancelRender (modification);
 
     const auto generation = nextGeneration++;
-    auto* job = new RenderJob { *this, modification, std::move (voice), sessionRate, generation };
+    auto* job = new RenderJob { *this, modification, std::move (voice),
+                                modification.getPitchEdit(), sessionRate, generation };
 
     {
         const juce::ScopedLock lock { jobLock };
@@ -291,8 +401,44 @@ void DocumentController::requestRenderForAllStaleModifications()
     const auto sessionRate = getSessionSampleRate();
 
     for (auto* modification : getModifications())
+    {
+        requestNoteDetection (*modification);
+
         if (! modification->isConversionCurrent (sessionRate))
             requestRender (*modification);
+    }
+}
+
+void DocumentController::requestNoteDetection (ConversionModification& modification)
+{
+    if (modification.hasNotes()
+        || modification.getNoteState() == ConversionModification::NoteState::finding)
+        return;
+
+    auto* audioSource = modification.getAudioSource();
+
+    if (audioSource == nullptr || ! audioSource->isSampleAccessEnabled())
+        return;
+
+    {
+        const juce::ScopedLock lock { jobLock };
+
+        if (activeDetections.find (&modification) != activeDetections.end())
+            return;
+    }
+
+    const auto generation = nextGeneration++;
+    auto* job = new DetectJob { *this, modification, generation };
+
+    {
+        const juce::ScopedLock lock { jobLock };
+        activeDetections[&modification] = { job, generation };
+    }
+
+    modification.setNoteState (ConversionModification::NoteState::finding);
+    detectionPool.addJob (job, true);
+
+    notifyStateChanged();
 }
 
 void DocumentController::setSessionSampleRate (const PlaybackRenderer* renderer, double sampleRate)
@@ -332,6 +478,15 @@ void DocumentController::applySettings (ConversionModification& modification,
                                         const ConversionSettings& settings)
 {
     if (! modification.setSettings (settings))
+        return;
+
+    requestRender (modification);
+    notifyStateChanged();
+}
+
+void DocumentController::applyPitchEdit (ConversionModification& modification, PitchEdit edit)
+{
+    if (! modification.setPitchEdit (std::move (edit)))
         return;
 
     requestRender (modification);
@@ -394,6 +549,43 @@ void DocumentController::completeRender (ConversionModification* modification,
     notifyStateChanged();
 }
 
+void DocumentController::completeDetection (ConversionModification* modification,
+                                            std::uint64_t generation,
+                                            PitchEdit edit,
+                                            juce::String error)
+{
+    JUCE_ASSERT_MESSAGE_THREAD
+
+    if (modification == nullptr)
+        return;
+
+    {
+        const juce::ScopedLock lock { jobLock };
+        const auto found = activeDetections.find (modification);
+
+        if (found == activeDetections.end() || found->second.generation != generation)
+            return;
+
+        activeDetections.erase (found);
+    }
+
+    using NoteState = ConversionModification::NoteState;
+
+    if (! edit.notes.empty())
+    {
+        modification->setPitchEdit (std::move (edit));
+        modification->setNoteState (NoteState::found);
+        modification->setNoteError ({});
+    }
+    else
+    {
+        modification->setNoteState (error.isNotEmpty() ? NoteState::failed : NoteState::none);
+        modification->setNoteError (error);
+    }
+
+    notifyStateChanged();
+}
+
 void DocumentController::publishPartialRender (ConversionModification* modification,
                                                 std::uint64_t generation,
                                                 ConversionPointer conversion)
@@ -443,6 +635,8 @@ juce::ARAAudioModification* DocumentController::doCreateAudioModification (
     {
         modification->setSettings (source->getSettings());
         modification->setVoiceName (source->getVoiceName());
+        modification->setPitchEdit (source->getPitchEdit());
+        modification->setNoteState (source->getNoteState());
     }
     else
     {
@@ -473,8 +667,12 @@ void DocumentController::didEnableAudioSourceSamplesAccess (juce::ARAAudioSource
     const auto sessionRate = getSessionSampleRate();
 
     for (auto* modification : audioSource->getAudioModifications<ConversionModification>())
+    {
+        requestNoteDetection (*modification);
+
         if (! modification->isConversionCurrent (sessionRate))
             requestRender (*modification);
+    }
 }
 
 bool DocumentController::doStoreObjectsToStream (juce::ARAOutputStream& output,

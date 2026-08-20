@@ -59,6 +59,27 @@ inline double semitonesToRatio (double semitones) noexcept
     return std::exp2 (semitones / 12.0);
 }
 
+/** @brief Expresses a frequency as a MIDI note number.
+    @param frequencyHz  Frequency in hertz.
+    @return The note number, where 69 is A440, or zero when unvoiced.
+*/
+inline double hzToMidiNote (double frequencyHz) noexcept
+{
+    if (frequencyHz <= 0.0)
+        return 0.0;
+
+    return 69.0 + 12.0 * std::log2 (frequencyHz / 440.0);
+}
+
+/** @brief Inverse of hzToMidiNote().
+    @param midiNote  The note number, where 69 is A440.
+    @return Frequency in hertz.
+*/
+inline double midiNoteToHz (double midiNote) noexcept
+{
+    return 440.0 * std::exp2 ((midiNote - 69.0) / 12.0);
+}
+
 /** @brief Maps a frequency onto the vocoder's coarse pitch embedding, mel spaced. */
 class CoarsePitchQuantiser
 {

@@ -34,8 +34,16 @@ public:
 
     [[nodiscard]] static juce::File getUserModelDirectory();
 
+    /** @brief Every directory voices and shared assets are looked for in, most general first. */
+    [[nodiscard]] static std::vector<juce::File> buildSearchPaths();
+
+    /** @brief Finds a shared asset directory installed beside the voices.
+        @param name  The directory's name, such as "GAME".
+        @return The first search path that holds it, or a file that does not exist.
+    */
+    [[nodiscard]] static juce::File findAssetDirectory (const juce::String& name);
+
 private:
-    void buildSearchPaths();
 
     [[nodiscard]] static std::optional<Entry> describeDirectory (const juce::File& directory);
 

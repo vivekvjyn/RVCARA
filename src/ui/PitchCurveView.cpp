@@ -24,6 +24,8 @@ namespace
         return "C" + juce::String (midiNote / 12 - 1);
     }
 
+    constexpr int toolRadioGroup = 1;
+
     double chooseRulerStep (float pixelsPerSecond)
     {
         for (const auto candidate : { 0.5, 1.0, 2.0, 5.0, 10.0, 30.0 })
@@ -44,6 +46,52 @@ PitchCurveView::PitchCurveView()
     viewport.onScroll = [this] { repaint(); };
     addAndMakeVisible (viewport);
 
+    track.onEditChanged = [this] (const PitchEdit& edit)
+    {
+        updateToolbar();
+
+        if (onEditChanged != nullptr)
+            onEditChanged (edit);
+    };
+
+    track.onSelectionChanged = [this] { updateToolbar(); };
+
+    const auto addTool = [this] (juce::TextButton& button, PitchTrack::Tool tool)
+    {
+        button.setClickingTogglesState (true);
+        button.setRadioGroupId (toolRadioGroup);
+        button.onClick = [this, tool] { chooseTool (tool); };
+        addAndMakeVisible (button);
+    };
+
+    addTool (selectButton, PitchTrack::Tool::select);
+    addTool (splitButton, PitchTrack::Tool::split);
+    addTool (glueButton, PitchTrack::Tool::glue);
+
+    selectButton.setToggleState (true, juce::dontSendNotification);
+
+    const auto addAction = [this] (juce::TextButton& button, std::function<void()> action)
+    {
+        button.onClick = std::move (action);
+        addAndMakeVisible (button);
+    };
+
+    addAction (snapButton, [this] { track.snapSelection(); updateToolbar(); });
+    addAction (resetButton, [this] { track.resetSelection(); updateToolbar(); });
+    addAction (undoButton, [this] { track.undo(); updateToolbar(); });
+    addAction (redoButton, [this] { track.redo(); updateToolbar(); });
+
+    shapeSlider.setRange (0.0, 1.0);
+    shapeSlider.setValue (1.0, juce::dontSendNotification);
+    shapeSlider.setDoubleClickReturnValue (true, 1.0);
+    shapeSlider.onDragEnd = [this] { applySelectionDepth(); };
+    shapeSlider.onValueChange = [this]
+    {
+        if (! shapeSlider.isMouseButtonDown())
+            applySelectionDepth();
+    };
+    addAndMakeVisible (shapeSlider);
+
     const auto addScaler = [this] (juce::Slider& scaler, double minimum, double maximum, double value)
     {
         scaler.setRange (minimum, maximum);
@@ -62,6 +110,62 @@ PitchCurveView::PitchCurveView()
                PitchTrack::minimumRowHeight,
                PitchTrack::maximumRowHeight,
                track.getRowHeight());
+
+    updateToolbar();
+}
+
+void PitchCurveView::setPitchEdit (PitchEdit edit)
+{
+    track.setPitchEdit (std::move (edit));
+    updateToolbar();
+}
+
+void PitchCurveView::setEditingEnabled (bool shouldBeEnabled)
+{
+    if (isEditingEnabled == shouldBeEnabled)
+        return;
+
+    isEditingEnabled = shouldBeEnabled;
+    track.setInterceptsMouseClicks (shouldBeEnabled, shouldBeEnabled);
+    updateToolbar();
+    repaint();
+}
+
+void PitchCurveView::setNoteStatus (const juce::String& status)
+{
+    if (noteStatus == status)
+        return;
+
+    noteStatus = status;
+    repaint();
+}
+
+void PitchCurveView::chooseTool (PitchTrack::Tool tool)
+{
+    track.setTool (tool);
+}
+
+void PitchCurveView::applySelectionDepth()
+{
+    track.setSelectionDepth (static_cast<float> (shapeSlider.getValue()));
+    updateToolbar();
+}
+
+void PitchCurveView::updateToolbar()
+{
+    const auto hasNotes = ! track.getPitchEdit().notes.empty();
+    const auto canEdit = isEditingEnabled && hasNotes;
+
+    for (auto* button : { &selectButton, &splitButton, &glueButton, &snapButton, &resetButton })
+        button->setEnabled (canEdit);
+
+    undoButton.setEnabled (canEdit && track.canUndo());
+    redoButton.setEnabled (canEdit && track.canRedo());
+
+    shapeSlider.setEnabled (canEdit);
+
+    if (! shapeSlider.isMouseButtonDown())
+        shapeSlider.setValue (static_cast<double> (track.getSelectionDepth()), juce::dontSendNotification);
 }
 
 void PitchCurveView::setConversion (ConversionPointer newConversion)
@@ -141,6 +245,28 @@ void PitchCurveView::resized()
 {
     auto bounds = getLocalBounds().reduced (1);
 
+    auto toolbarRow = bounds.removeFromTop (toolbarHeight).reduced (Metrics::gap, 3);
+
+    const auto place = [&toolbarRow] (juce::Component& component, int width)
+    {
+        component.setBounds (toolbarRow.removeFromLeft (width).withTrimmedRight (3));
+    };
+
+    place (selectButton, toolButtonWidth);
+    place (splitButton, toolButtonWidth);
+    place (glueButton, toolButtonWidth);
+    toolbarRow.removeFromLeft (Metrics::gap);
+    place (snapButton, toolButtonWidth);
+    place (resetButton, toolButtonWidth);
+    toolbarRow.removeFromLeft (Metrics::gap);
+    place (undoButton, toolButtonWidth);
+    place (redoButton, toolButtonWidth);
+    toolbarRow.removeFromLeft (Metrics::gap);
+    shapeLabelBounds = toolbarRow.removeFromLeft (44);
+    place (shapeSlider, 96);
+
+    noteStatusBounds = toolbarRow;
+
     auto scalerRow = bounds.removeFromBottom (scalerHeight);
     scalerRow.removeFromLeft (keyboardWidth);
     verticalScaler.setBounds (scalerRow.removeFromRight (88).reduced (4, 3));
@@ -154,6 +280,26 @@ void PitchCurveView::resized()
 
     viewport.setBounds (bounds);
     applyZoom();
+}
+
+void PitchCurveView::paintToolbar (juce::Graphics& graphics, juce::Rectangle<int> bounds) const
+{
+    graphics.setColour (Palette::bar);
+    graphics.fillRect (bounds);
+
+    graphics.setColour (Palette::edge);
+    graphics.fillRect (static_cast<float> (bounds.getX()),
+                       static_cast<float> (bounds.getBottom()) - Metrics::hairline,
+                       static_cast<float> (bounds.getWidth()),
+                       Metrics::hairline);
+
+    PanelLookAndFeel::drawTrackedText (graphics, "SHAPE", shapeLabelBounds.toFloat(),
+                                       juce::Justification::left, TypeScale::label,
+                                       Metrics::tracking * 0.5f, Palette::dimText);
+
+    PanelLookAndFeel::drawTrackedText (graphics, noteStatus.toUpperCase(), noteStatusBounds.toFloat(),
+                                       juce::Justification::right, TypeScale::label,
+                                       Metrics::tracking * 0.5f, Palette::dimText);
 }
 
 void PitchCurveView::paintKeyboard (juce::Graphics& graphics, juce::Rectangle<int> bounds) const
@@ -292,6 +438,7 @@ void PitchCurveView::paint (juce::Graphics& graphics)
     graphics.fillAll (Palette::well);
 
     auto bounds = getLocalBounds().reduced (1);
+    paintToolbar (graphics, bounds.removeFromTop (toolbarHeight));
     bounds.removeFromBottom (scalerHeight);
 
     const auto rulerBounds = bounds.removeFromTop (rulerHeight);

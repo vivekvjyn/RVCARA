@@ -50,6 +50,11 @@ private:
     [[nodiscard]] ConversionModification* getFocusedModification() const;
     [[nodiscard]] juce::String describeLoadedVoice() const;
 
+    /** @brief What the toolbar says about note detection for the region on show. */
+    [[nodiscard]] static juce::String describeNotes (const ConversionModification& modification);
+
+    void applyPitchEdit (const PitchEdit& edit);
+
     void refresh();
     void showVoiceMenu();
     void applyVoice (const juce::String& name);
@@ -63,6 +68,9 @@ private:
     juce::TextButton voiceButton;
     PitchCurveView pitchCurveView;
     Report report;
+
+    /** @brief The region the editor is showing, so an edit lands on what the user was looking at. */
+    ConversionModification* shownModification { nullptr };
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (Editor)
 };

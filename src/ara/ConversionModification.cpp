@@ -22,6 +22,29 @@ bool ConversionModification::setVoiceName (const juce::String& name)
     return true;
 }
 
+PitchEdit ConversionModification::getPitchEdit() const
+{
+    const juce::ScopedLock lock { editLock };
+    return pitchEdit;
+}
+
+bool ConversionModification::setPitchEdit (PitchEdit newEdit)
+{
+    const juce::ScopedLock lock { editLock };
+
+    if (pitchEdit == newEdit)
+        return false;
+
+    pitchEdit = std::move (newEdit);
+    return true;
+}
+
+bool ConversionModification::hasNotes() const
+{
+    const juce::ScopedLock lock { editLock };
+    return ! pitchEdit.notes.empty();
+}
+
 void ConversionModification::setConversion (ConversionPointer newConversion)
 {
     conversion = std::move (newConversion);
@@ -32,12 +55,13 @@ void ConversionModification::clearConversion()
     conversion.reset();
 }
 
-bool ConversionModification::isConversionCurrent (double sampleRate) const noexcept
+bool ConversionModification::isConversionCurrent (double sampleRate) const
 {
     return conversion != nullptr
         && ! conversion->isPartial
         && conversion->voiceName == voiceName
         && conversion->settings == settings
+        && conversion->pitchEdit == getPitchEdit()
         && juce::approximatelyEqual (conversion->sampleRate, sampleRate);
 }
 
@@ -53,6 +77,63 @@ void ConversionModification::setError (const juce::String& message)
     errorMessage = message;
 }
 
+juce::String ConversionModification::getNoteError() const
+{
+    const juce::ScopedLock lock { errorLock };
+    return noteErrorMessage;
+}
+
+void ConversionModification::setNoteError (const juce::String& message)
+{
+    const juce::ScopedLock lock { errorLock };
+    noteErrorMessage = message;
+}
+
+void ConversionModification::writeNotes (juce::OutputStream& stream, const PitchEdit& edit)
+{
+    stream.writeInt (static_cast<int> (edit.notes.size()));
+
+    for (const auto& note : edit.notes)
+    {
+        stream.writeDouble (note.startSeconds);
+        stream.writeDouble (note.endSeconds);
+        stream.writeFloat (note.sungMidiNote);
+        stream.writeFloat (note.offsetSemitones);
+        stream.writeFloat (note.depth);
+        stream.writeBool (note.isRest);
+    }
+}
+
+PitchEdit ConversionModification::readNotes (juce::InputStream& stream)
+{
+    PitchEdit edit;
+
+    // A take is a few hundred notes; anything past this is a damaged archive, not a performance.
+    static constexpr int maximumNotes = 1 << 20;
+
+    const auto numNotes = stream.readInt();
+
+    if (numNotes <= 0 || numNotes > maximumNotes)
+        return edit;
+
+    edit.notes.reserve (static_cast<std::size_t> (numNotes));
+
+    for (int noteIndex = 0; noteIndex < numNotes && ! stream.isExhausted(); ++noteIndex)
+    {
+        EditedNote note;
+        note.startSeconds = stream.readDouble();
+        note.endSeconds = stream.readDouble();
+        note.sungMidiNote = stream.readFloat();
+        note.offsetSemitones = stream.readFloat();
+        note.depth = stream.readFloat();
+        note.isRest = stream.readBool();
+
+        edit.notes.push_back (note);
+    }
+
+    return edit;
+}
+
 void ConversionModification::writeToArchive (juce::OutputStream& stream) const
 {
     stream.writeInt (archiveVersion);
@@ -63,13 +144,14 @@ void ConversionModification::writeToArchive (juce::OutputStream& stream) const
     stream.writeFloat (settings.envelopeFollowRatio);
     stream.writeInt (settings.latentNoiseSeed);
     stream.writeBool (settings.isBypassed);
+    writeNotes (stream, getPitchEdit());
 }
 
 bool ConversionModification::readFromArchive (juce::InputStream& stream)
 {
     const auto version = stream.readInt();
 
-    if (version != archiveVersion)
+    if (version < 1 || version > archiveVersion)
         return false;
 
     const auto storedVoiceName = stream.readString();
@@ -85,12 +167,23 @@ bool ConversionModification::readFromArchive (juce::InputStream& stream)
     voiceName = storedVoiceName;
     settings = storedSettings;
 
+    if (version >= 2)
+    {
+        auto storedEdit = readNotes (stream);
+
+        if (! storedEdit.notes.empty())
+            setNoteState (NoteState::found);
+
+        const juce::ScopedLock lock { editLock };
+        pitchEdit = std::move (storedEdit);
+    }
+
     return true;
 }
 
 void ConversionModification::readAndDiscard (juce::InputStream& stream)
 {
-    stream.readInt();
+    const auto version = stream.readInt();
     stream.readString();
     stream.readFloat();
     stream.readFloat();
@@ -98,5 +191,8 @@ void ConversionModification::readAndDiscard (juce::InputStream& stream)
     stream.readFloat();
     stream.readInt();
     stream.readBool();
+
+    if (version >= 2)
+        readNotes (stream);
 }
 }

@@ -51,6 +51,7 @@ Editor::Editor (Processor& processorToUse)
     voiceButton.setTriggeredOnMouseDown (true);
     addAndMakeVisible (voiceButton);
 
+    pitchCurveView.onEditChanged = [this] (const PitchEdit& edit) { applyPitchEdit (edit); };
     addAndMakeVisible (pitchCurveView);
 
     if (auto* documentController = processorReference.getConversionDocumentController())
@@ -373,16 +374,58 @@ Editor::Report Editor::describeState() const
     return isRenderingThroughARA() ? describeModification() : describeCapture();
 }
 
+juce::String Editor::describeNotes (const ConversionModification& modification)
+{
+    switch (modification.getNoteState())
+    {
+        case ConversionModification::NoteState::finding:
+            return "Finding notes";
+
+        case ConversionModification::NoteState::found:
+            return juce::String (static_cast<int> (modification.getPitchEdit().notes.size())) + " notes";
+
+        case ConversionModification::NoteState::failed:
+            return "No notes";
+
+        case ConversionModification::NoteState::none:
+            break;
+    }
+
+    return {};
+}
+
+void Editor::applyPitchEdit (const PitchEdit& edit)
+{
+    auto* documentController = processorReference.getConversionDocumentController();
+
+    if (documentController != nullptr && shownModification != nullptr)
+        documentController->applyPitchEdit (*shownModification, edit);
+}
+
 void Editor::refresh()
 {
     report = describeState();
     voiceButton.setButtonText (describeLoadedVoice());
 
-    auto* modification = isRenderingThroughARA() ? getFocusedModification() : nullptr;
+    shownModification = isRenderingThroughARA() ? getFocusedModification() : nullptr;
 
-    pitchCurveView.setConversion (isRenderingThroughARA()
-                                      ? (modification != nullptr ? modification->getConversion() : nullptr)
-                                      : processorReference.getInsertConverter().getConversion());
+    pitchCurveView.setConversion (shownModification != nullptr
+                                      ? shownModification->getConversion()
+                                      : (isRenderingThroughARA()
+                                             ? nullptr
+                                             : processorReference.getInsertConverter().getConversion()));
+
+    pitchCurveView.setEditingEnabled (shownModification != nullptr);
+    pitchCurveView.setPitchEdit (shownModification != nullptr ? shownModification->getPitchEdit() : PitchEdit {});
+    pitchCurveView.setNoteStatus (shownModification != nullptr ? describeNotes (*shownModification)
+                                                              : juce::String ("Editing needs ARA"));
+
+    if (shownModification != nullptr
+        && report.caption.isEmpty()
+        && shownModification->getNoteState() == ConversionModification::NoteState::failed)
+    {
+        report.caption = shownModification->getNoteError();
+    }
 
     pitchCurveView.setCaption (report.caption, report.isAlert);
     repaint();

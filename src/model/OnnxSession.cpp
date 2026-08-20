@@ -123,7 +123,7 @@ std::vector<Ort::Value> OnnxSession::run (const std::vector<TensorView>& inputs,
                     input.shape.data(),
                     input.shape.size()));
             }
-            else
+            else if (input.intData != nullptr)
             {
                 inputValues.push_back (Ort::Value::CreateTensor<std::int64_t> (
                     memoryInfo,
@@ -131,6 +131,16 @@ std::vector<Ort::Value> OnnxSession::run (const std::vector<TensorView>& inputs,
                     static_cast<std::size_t> (numElements),
                     input.shape.data(),
                     input.shape.size()));
+            }
+            else
+            {
+                inputValues.push_back (Ort::Value::CreateTensor (
+                    memoryInfo,
+                    const_cast<std::uint8_t*> (input.boolData),
+                    static_cast<std::size_t> (numElements),
+                    input.shape.data(),
+                    input.shape.size(),
+                    ONNX_TENSOR_ELEMENT_DATA_TYPE_BOOL));
             }
         }
 

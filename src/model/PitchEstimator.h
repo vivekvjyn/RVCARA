@@ -29,10 +29,20 @@ public:
                     const MelSpectrogram& spectrogram,
                     const OnnxSession& network);
 
+    /** @brief Estimates the melody exactly as it was sung.
+        @param samples     The take at the analysis rate.
+        @param numSamples  How many samples it has.
+        @param error       Set when estimation failed.
+        @return The melody, or an empty result on failure.
+    */
     [[nodiscard]] Result estimate (const float* samples,
                                    int numSamples,
-                                   float pitchShiftSemitones,
                                    juce::String& error) const;
+
+    /** @brief Rebuilds the coarse bins after the caller has moved the fundamental.
+        @param melody  The melody to requantise in place.
+    */
+    void requantise (Result& melody) const;
 
 private:
     [[nodiscard]] double decodeFrame (const float* salienceFrame) const;

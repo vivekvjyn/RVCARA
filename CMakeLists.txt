@@ -17,6 +17,13 @@ if(NOT CMAKE_BUILD_TYPE AND NOT CMAKE_CONFIGURATION_TYPES)
 endif()
 
 option(RVCARA_BUILD_TESTS "Build the unit tests" ON)
+option(RVCARA_FETCH_NOTE_MODEL "Download the GAME note segmentation model if it is missing" ON)
+
+set(RVCARA_NOTE_MODEL_VERSION "1.0.3" CACHE STRING
+    "The openvpi/GAME release the note segmentation model is taken from")
+
+set(RVCARA_NOTE_MODEL_URL "" CACHE STRING
+    "Where to fetch the note segmentation model from, instead of the GitHub release")
 
 set(RVCARA_ONNXRUNTIME_ROOT "" CACHE PATH
     "Existing ONNX Runtime installation to use instead of building libs/onnxruntime")
@@ -218,12 +225,14 @@ endfunction()
 
 set(RVCARA_ENGINE_SOURCES
     src/common/BinaryMatrix.cpp
+    src/common/PitchEdit.cpp
     src/dsp/MelSpectrogram.cpp
     src/dsp/SincResampler.cpp
     src/dsp/ZeroPhaseFilter.cpp
     src/model/ConversionEngine.cpp
     src/model/FeatureRetriever.cpp
     src/model/ModelManifest.cpp
+    src/model/NoteSegmenter.cpp
     src/model/OnnxSession.cpp
     src/model/PitchEstimator.cpp
     src/model/VoiceLoader.cpp
@@ -330,6 +339,57 @@ foreach(format ${RVCARA_FORMATS})
         rvcara_copy_onnxruntime_beside(RVCARA_${format})
     endif()
 endforeach()
+
+# The note segmentation model is a pretrained asset rather than a submodule, so it is fetched
+# into the development model directory the plug-in already searches. It is never committed.
+set(noteModelDir "${CMAKE_CURRENT_SOURCE_DIR}/res/models/GAME")
+
+if(RVCARA_FETCH_NOTE_MODEL AND NOT EXISTS "${noteModelDir}/config.json")
+    if(RVCARA_NOTE_MODEL_URL)
+        set(noteModelUrl "${RVCARA_NOTE_MODEL_URL}")
+    else()
+        set(noteModelUrl
+            "https://github.com/openvpi/GAME/releases/download/v${RVCARA_NOTE_MODEL_VERSION}/GAME-${RVCARA_NOTE_MODEL_VERSION}-small-onnx.zip")
+    endif()
+
+    set(noteModelArchive "${CMAKE_BINARY_DIR}/game-note-model.zip")
+    set(noteModelStaging "${CMAKE_BINARY_DIR}/game-note-model")
+
+    message(STATUS "Note model: downloading ${noteModelUrl}")
+
+    file(DOWNLOAD "${noteModelUrl}" "${noteModelArchive}" STATUS noteModelStatus SHOW_PROGRESS)
+    list(GET noteModelStatus 0 noteModelResult)
+
+    if(NOT noteModelResult EQUAL 0)
+        list(GET noteModelStatus 1 noteModelMessage)
+        message(WARNING
+            "Could not download the note segmentation model (${noteModelMessage}). "
+            "The pitch editor will report that no note model is installed. "
+            "Unpack the GAME small ONNX release into ${noteModelDir} by hand, or configure "
+            "again with -DRVCARA_FETCH_NOTE_MODEL=OFF to stop trying.")
+    else()
+        file(MAKE_DIRECTORY "${noteModelStaging}")
+        execute_process(COMMAND ${CMAKE_COMMAND} -E tar xf "${noteModelArchive}"
+                        WORKING_DIRECTORY "${noteModelStaging}"
+                        RESULT_VARIABLE noteModelUnpacked)
+
+        if(NOT noteModelUnpacked EQUAL 0)
+            message(WARNING "Could not unpack the note segmentation model")
+        else()
+            file(GLOB_RECURSE noteModelFiles "${noteModelStaging}/*.onnx" "${noteModelStaging}/config.json")
+            file(MAKE_DIRECTORY "${noteModelDir}")
+
+            foreach(noteModelFile ${noteModelFiles})
+                file(COPY "${noteModelFile}" DESTINATION "${noteModelDir}")
+            endforeach()
+
+            message(STATUS "Note model: installed into ${noteModelDir}")
+        endif()
+
+        file(REMOVE "${noteModelArchive}")
+        file(REMOVE_RECURSE "${noteModelStaging}")
+    endif()
+endif()
 
 find_package(Doxygen)
 

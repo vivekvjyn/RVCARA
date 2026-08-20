@@ -120,9 +120,17 @@ void PitchEstimator::fillUnvoicedGaps (std::vector<float>& frequencies)
     }
 }
 
+void PitchEstimator::requantise (Result& melody) const
+{
+    melody.coarsePitchBins.resize (melody.fundamentalFrequencyHz.size());
+
+    for (std::size_t frameIndex = 0; frameIndex < melody.fundamentalFrequencyHz.size(); ++frameIndex)
+        melody.coarsePitchBins[frameIndex] =
+            quantiser.toBin (static_cast<double> (melody.fundamentalFrequencyHz[frameIndex]));
+}
+
 PitchEstimator::Result PitchEstimator::estimate (const float* samples,
                                                  int numSamples,
-                                                 float pitchShiftSemitones,
                                                  juce::String& error) const
 {
     Result result;
@@ -188,19 +196,7 @@ PitchEstimator::Result PitchEstimator::estimate (const float* samples,
 
     fillUnvoicedGaps (result.fundamentalFrequencyHz);
 
-    if (pitchShiftSemitones != 0.0f)
-    {
-        const auto ratio = static_cast<float> (semitonesToRatio (pitchShiftSemitones));
-
-        for (auto& frequency : result.fundamentalFrequencyHz)
-            frequency *= ratio;
-    }
-
-    result.coarsePitchBins.resize (static_cast<std::size_t> (numFrames));
-
-    for (int frameIndex = 0; frameIndex < numFrames; ++frameIndex)
-        result.coarsePitchBins[static_cast<std::size_t> (frameIndex)] =
-            quantiser.toBin (static_cast<double> (result.fundamentalFrequencyHz[static_cast<std::size_t> (frameIndex)]));
+    requantise (result);
 
     return result;
 }

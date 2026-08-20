@@ -60,6 +60,7 @@ public:
         auto result = std::make_shared<ConversionResult>();
         result->samples = std::move (outcome.samples);
         result->fundamentalFrequencyHz = std::move (outcome.fundamentalFrequencyHz);
+        result->sourceFundamentalFrequencyHz = std::move (outcome.sourceFundamentalFrequencyHz);
         result->pitchFrameRate = outcome.pitchFrameRate;
         result->sampleRate = sampleRate;
         result->settings = settings;

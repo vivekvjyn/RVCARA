@@ -1,6 +1,7 @@
 #pragma once
 
 #include "common/ConversionSettings.h"
+#include "common/PitchEdit.h"
 #include "model/VoiceModel.h"
 
 #include <juce_audio_basics/juce_audio_basics.h>
@@ -28,6 +29,9 @@ public:
         double outputSampleRate { 0.0 };
 
         ConversionSettings settings;
+
+        /** @brief The pitch edit to sing, or nullptr to sing the take as it was sung. */
+        const PitchEdit* pitchEdit { nullptr };
     };
 
     /** @brief The outcome of a conversion. */
@@ -36,6 +40,9 @@ public:
         std::vector<float> samples;
 
         std::vector<float> fundamentalFrequencyHz;
+
+        /** @brief The melody as it was sung, before the edit and the transposition moved it. */
+        std::vector<float> sourceFundamentalFrequencyHz;
 
         double pitchFrameRate { 100.0 };
 

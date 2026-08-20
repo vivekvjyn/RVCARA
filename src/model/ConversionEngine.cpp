@@ -1,5 +1,6 @@
 #include "model/ConversionEngine.h"
 
+#include "dsp/PitchConversions.h"
 #include "dsp/SincResampler.h"
 
 #include <algorithm>
@@ -372,7 +373,6 @@ ConversionEngine::Result ConversionEngine::convert (const Request& request,
 
     auto melody = voiceModel.getPitchEstimator().estimate (padded.data(),
                                                            numPaddedSamples,
-                                                           request.settings.pitchShiftSemitones,
                                                            result.error);
 
     if (melody.getNumFrames() == 0)
@@ -392,6 +392,27 @@ ConversionEngine::Result ConversionEngine::convert (const Request& request,
     melody.fundamentalFrequencyHz.resize (static_cast<std::size_t> (numFrames));
     melody.coarsePitchBins.resize (static_cast<std::size_t> (numFrames));
 
+    const auto pitchPaddingFrames = contextPadding / hopSize;
+
+    const auto sungFundamentalFrequencyHz = melody.fundamentalFrequencyHz;
+
+    if (request.pitchEdit != nullptr)
+        applyPitchEdit (melody.fundamentalFrequencyHz,
+                        *request.pitchEdit,
+                        result.pitchFrameRate,
+                        pitchPaddingFrames);
+
+    if (request.settings.pitchShiftSemitones != 0.0f)
+    {
+        const auto ratio = static_cast<float> (semitonesToRatio (request.settings.pitchShiftSemitones));
+
+        for (auto& frequencyHz : melody.fundamentalFrequencyHz)
+            frequencyHz *= ratio;
+    }
+
+    if (request.pitchEdit != nullptr || request.settings.pitchShiftSemitones != 0.0f)
+        voiceModel.getPitchEstimator().requantise (melody);
+
     const auto chunks = planChunks (analysis.data(),
                                     static_cast<int> (analysis.size()),
                                     numPaddedSamples,
@@ -408,7 +429,6 @@ ConversionEngine::Result ConversionEngine::convert (const Request& request,
 
     const SincResampler toOutputRate { static_cast<double> (manifest.modelSampleRate), outputSampleRate };
 
-    const auto pitchPaddingFrames = contextPadding / hopSize;
     const auto numRegionFrames = std::max (0, numFrames - 2 * pitchPaddingFrames);
 
     const auto assemble = [&] (const std::vector<float>& renderedSoFar, bool isComplete)
@@ -456,9 +476,15 @@ ConversionEngine::Result ConversionEngine::convert (const Request& request,
             : std::min (numRegionFrames, static_cast<int> (renderedSeconds * assembled.pitchFrameRate));
 
         if (numFramesSoFar > 0)
+        {
             assembled.fundamentalFrequencyHz.assign (
                 melody.fundamentalFrequencyHz.begin() + pitchPaddingFrames,
                 melody.fundamentalFrequencyHz.begin() + pitchPaddingFrames + numFramesSoFar);
+
+            assembled.sourceFundamentalFrequencyHz.assign (
+                sungFundamentalFrequencyHz.begin() + pitchPaddingFrames,
+                sungFundamentalFrequencyHz.begin() + pitchPaddingFrames + numFramesSoFar);
+        }
 
         assembled.isValid = true;
         return assembled;
@@ -561,6 +587,7 @@ ConversionEngine::Result ConversionEngine::convert (const Request& request,
     auto assembled = assemble (rendered, true);
     result.samples = std::move (assembled.samples);
     result.fundamentalFrequencyHz = std::move (assembled.fundamentalFrequencyHz);
+    result.sourceFundamentalFrequencyHz = std::move (assembled.sourceFundamentalFrequencyHz);
 
     report (1.0f);
 

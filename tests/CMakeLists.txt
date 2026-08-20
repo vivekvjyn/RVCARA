@@ -3,6 +3,7 @@ add_executable(rvcara_tests
     ConversionSettingsTests.cpp
     MelSpectrogramTests.cpp
     PitchConversionsTests.cpp
+    PitchEditTests.cpp
     SincResamplerTests.cpp
     ZeroPhaseFilterTests.cpp)
 
@@ -20,7 +21,10 @@ rvcara_copy_onnxruntime_beside(rvcara_tests)
 rvcara_apply_strict_warnings(
     ConversionSettingsTests.cpp
     PitchConversionsTests.cpp
+    PitchEditTests.cpp
     SincResamplerTests.cpp)
 
 include(GoogleTest)
 gtest_discover_tests(rvcara_tests)
+
+
