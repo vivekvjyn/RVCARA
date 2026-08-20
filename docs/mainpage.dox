@@ -90,15 +90,31 @@ and `manifest.json`.
 
 Two of the graphs the pipeline runs are not the voice at all. The content encoder is
 ContentVec-initialised HuBERT and the pitch estimator is RMVPE; neither is fine-tuned per
-singer, and between them they are 740 MB of a voice's 1.2 GB. They therefore live beside the
-voices under the names they carry upstream, `hubert_base.onnx` and `rmvpe.onnx`, and a voice
-directory holding its own copy is a duplicate rather than a requirement.
+singer, and between them they are 740 MB of a voice's 1.2 GB. Each therefore gets a directory
+of its own beside the voices, named for its model and laid out the way `GAME/` is:
 
-rvcara::VoiceModel resolves each of them in turn: the voice's own copy, then the name the
-manifest asks for installed beside the voices, then the upstream name. An export that still
-ships its own copies loads exactly as it did; one that does not picks the shared graph up. A
-graph found that way is checked against the input name the manifest declares, so the wrong
-copy is reported at load rather than at the first conversion.
+@code
+res/models/ContentVec/  config.json  hubert_base.onnx
+res/models/RMVPE/       config.json  rmvpe.onnx  mel_filter_bank.bin
+@endcode
+
+A model that is not the voice describes itself rather than being described by every voice that
+borrows it, which is what the `config.json` is for. rvcara::ContentEncoderManifest carries the
+graph's two tensor names, the rate and frame rate it works at, and the width of the features it
+returns. rvcara::PitchEstimatorManifest carries its tensor names, its whole mel front end — the
+filter bank included, since which filter bank RMVPE wants is RMVPE's business — and the
+constants its salience map is decoded with. What stays in the voice's manifest is what is
+actually the voice: the vocoder, the codebook, the coarse pitch embedding it was trained with,
+the chunking and the defaults.
+
+rvcara::VoiceModel resolves each graph in turn: the voice's own copy, then the model's
+directory beside the voices, then a loose file under the manifest's name or the upstream one.
+An export that still ships its own copies loads exactly as it did, described by its own
+manifest. One that does not picks up the shared graph and rvcara::ModelManifest::adopt takes
+that model's word for what it is. Adopting an encoder whose features are the wrong width for
+the voice's vocoder fails at load with the two widths named, and a graph found beside the
+voices is checked against the input name it is about to be run with, so the wrong copy is
+reported at load rather than at the first conversion.
 
 rvcara::OnnxSession::getShared then keeps one session per resolved path for as long as any
 voice is using it, so changing voice reloads the vocoder and the codebook and nothing else.
@@ -108,9 +124,9 @@ only when they literally name the same file.
 rvcara::VoiceModelLibrary searches, in increasing precedence: the shared application data
 directory, the user's application data directory, this working copy's `res/models` (compiled
 in at configure time, since a plug-in cannot reach the repository by a relative path), and any
-path in `RVCARA_MODEL_PATH`. The same search finds the assets that are not voices, which is how
-`GAME/`, `rmvpe.onnx` and `hubert_base.onnx` are located; only directories carrying a
-`manifest.json` are offered as voices, so the shared assets never appear in the selector.
+path in `RVCARA_MODEL_PATH`. The same search finds the models that are not voices, which is how
+`ContentVec/`, `RMVPE/` and `GAME/` are located; only directories carrying a `manifest.json`
+are offered as voices, so none of the three ever appears in the selector.
 
 Every pipeline constant lives in `manifest.json`, so a model trained at another sample rate or
 feature width loads without a plug-in release. The ONNX tensor names are read from it too.

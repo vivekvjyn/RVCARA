@@ -1,0 +1,14 @@
+{
+    "schemaVersion": 1,
+    "model": "ContentVec",
+    "description": "ContentVec-initialised HuBERT, RVC's hubert_base, exported by RTVoice",
+    "graph": {
+        "file": "hubert_base.onnx",
+        "input": "audio",
+        "output": "features"
+    },
+    "sampleRate": 16000,
+    "frameRate": 50,
+    "featureDim": 768,
+    "minimumNumSamples": 400
+}

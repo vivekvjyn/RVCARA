@@ -1,0 +1,36 @@
+{
+    "schemaVersion": 1,
+    "model": "RMVPE",
+    "description": "Robust model for vocal pitch estimation, exported by RTVoice",
+    "graph": {
+        "file": "rmvpe.onnx",
+        "input": "logMelSpectrogram",
+        "output": "salience"
+    },
+    "frontEnd": {
+        "sampleRate": 16000,
+        "fftSize": 1024,
+        "windowSize": 1024,
+        "hopSizeInSamples": 160,
+        "window": "hann",
+        "isCentred": true,
+        "numMelBins": 128,
+        "numBins": 513,
+        "minimumFrequencyHz": 30.0,
+        "maximumFrequencyHz": 8000.0,
+        "melScale": "htk",
+        "magnitudeFloor": 1e-05,
+        "filterBankFile": "mel_filter_bank.bin"
+    },
+    "decoder": {
+        "numPitchBins": 360,
+        "centsOrigin": 1997.379408437619,
+        "centsPerBin": 20.0,
+        "centsReferenceHz": 10.0,
+        "localAverageRadius": 4,
+        "salienceThreshold": 0.03,
+        "frameCountMultiple": 32,
+        "minimumFrequencyHz": 50.0,
+        "maximumFrequencyHz": 1100.0
+    }
+}

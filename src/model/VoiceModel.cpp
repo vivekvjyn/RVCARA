@@ -4,35 +4,67 @@
 #include "model/VoiceModelLibrary.h"
 
 #include <algorithm>
+#include <optional>
 #include <vector>
 
 namespace rvcara
 {
 namespace
 {
-    /** @brief The names the two universal graphs carry upstream, which is what they are
-               installed as when they are shared rather than copied into every voice.
+    /** @brief The names the two universal graphs carry upstream, used when one is installed
+               loose beside the voices rather than in a directory of its own.
     */
     constexpr const char* sharedContentEncoderFile = "hubert_base.onnx";
     constexpr const char* sharedPitchEstimatorFile = "rmvpe.onnx";
 
+    constexpr const char* sharedConfigurationFile = "config.json";
+
+    /** @brief Where a graph came from and, when it is a shared one, what it says about itself. */
+    template <typename Manifest>
+    struct ResolvedGraph
+    {
+        juce::File file;
+        std::optional<Manifest> shared;
+    };
+
     /** @brief Finds a graph: the voice's own copy first, then the one installed beside the voices.
+
+        A shared graph lives in a directory named for its model and carrying a config.json that
+        describes it, which is the description used in place of the voice's. The loose forms are
+        accepted too, so a graph moved out of a voice directory by hand still loads.
+
         @param directory   The voice's directory.
-        @param named       The file the manifest asks for.
-        @param sharedName  What the same graph is called upstream, when it is shared.
-        @return The file to load, which may not exist.
+        @param named       The file the voice's manifest asks for.
+        @param sharedName  What the same graph is called upstream.
+        @param error       Set when a shared configuration was found but could not be read.
+        @return The file to load, which may not exist, and the configuration beside it.
     */
-    juce::File findGraph (const juce::File& directory,
-                          const juce::String& named,
-                          const juce::String& sharedName)
+    template <typename Manifest>
+    ResolvedGraph<Manifest> findGraph (const juce::File& directory,
+                                       const juce::String& named,
+                                       const juce::String& sharedName,
+                                       juce::String& error)
     {
         if (const auto own = directory.getChildFile (named); own.existsAsFile())
-            return own;
+            return { own, std::nullopt };
 
-        if (const auto shared = VoiceModelLibrary::findAssetFile (named); shared.existsAsFile())
-            return shared;
+        const auto assetDirectory = VoiceModelLibrary::findAssetDirectory (Manifest::directoryName);
 
-        return VoiceModelLibrary::findAssetFile (sharedName);
+        if (const auto configuration = assetDirectory.getChildFile (sharedConfigurationFile);
+            configuration.existsAsFile())
+        {
+            auto shared = Manifest::parse (configuration, error);
+
+            if (! shared.has_value())
+                return {};
+
+            return { assetDirectory.getChildFile (shared->graphFile), std::move (shared) };
+        }
+
+        if (const auto beside = VoiceModelLibrary::findAssetFile (named); beside.existsAsFile())
+            return { beside, std::nullopt };
+
+        return { VoiceModelLibrary::findAssetFile (sharedName), std::nullopt };
     }
 
     /** @brief Reports a shared graph that is not the one the manifest describes.
@@ -87,29 +119,41 @@ std::unique_ptr<VoiceModel> VoiceModel::load (const juce::File& directory,
     model->manifest = std::move (*parsed);
     const auto& manifest = model->manifest;
 
-    const auto contentEncoderFile = findGraph (directory, manifest.contentEncoderFile,
-                                               sharedContentEncoderFile);
+    const auto contentEncoder = findGraph<ContentEncoderManifest> (
+        directory, manifest.contentEncoderFile, sharedContentEncoderFile, error);
 
-    model->contentEncoder = OnnxSession::getShared (contentEncoderFile, numThreads, error);
+    if (error.isNotEmpty())
+        return nullptr;
+
+    if (contentEncoder.shared.has_value() && ! model->manifest.adopt (*contentEncoder.shared, error))
+        return nullptr;
+
+    model->contentEncoder = OnnxSession::getShared (contentEncoder.file, numThreads, error);
 
     if (model->contentEncoder == nullptr)
         return nullptr;
 
-    error = describeMismatch (*model->contentEncoder, contentEncoderFile,
+    error = describeMismatch (*model->contentEncoder, contentEncoder.file,
                               manifest.contentEncoderInput, "content encoder");
 
     if (error.isNotEmpty())
         return nullptr;
 
-    const auto pitchEstimatorFile = findGraph (directory, manifest.pitchEstimatorFile,
-                                               sharedPitchEstimatorFile);
+    const auto pitchEstimator = findGraph<PitchEstimatorManifest> (
+        directory, manifest.pitchEstimatorFile, sharedPitchEstimatorFile, error);
 
-    model->pitchNetwork = OnnxSession::getShared (pitchEstimatorFile, numThreads, error);
+    if (error.isNotEmpty())
+        return nullptr;
+
+    if (pitchEstimator.shared.has_value() && ! model->manifest.adopt (*pitchEstimator.shared, error))
+        return nullptr;
+
+    model->pitchNetwork = OnnxSession::getShared (pitchEstimator.file, numThreads, error);
 
     if (model->pitchNetwork == nullptr)
         return nullptr;
 
-    error = describeMismatch (*model->pitchNetwork, pitchEstimatorFile,
+    error = describeMismatch (*model->pitchNetwork, pitchEstimator.file,
                               manifest.pitchEstimatorInput, "pitch estimator");
 
     if (error.isNotEmpty())
@@ -130,7 +174,14 @@ std::unique_ptr<VoiceModel> VoiceModel::load (const juce::File& directory,
         return nullptr;
     }
 
-    model->melFilterBank = BinaryMatrix::load (directory.getChildFile (manifest.melFilterBankFile));
+    // The filter bank belongs to the estimator's front end, so it is looked for beside the graph
+    // that wants it before the voice that used to carry a copy.
+    auto filterBankFile = pitchEstimator.file.getParentDirectory().getChildFile (manifest.melFilterBankFile);
+
+    if (! filterBankFile.existsAsFile())
+        filterBankFile = directory.getChildFile (manifest.melFilterBankFile);
+
+    model->melFilterBank = BinaryMatrix::load (filterBankFile);
 
     if (! model->melFilterBank.isValid())
     {

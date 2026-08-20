@@ -11,6 +11,63 @@
 
 namespace rvcara
 {
+/** @brief What a content encoder installed beside the voices says about itself.
+
+    The encoder is ContentVec-initialised HuBERT and is the same graph whichever voice is
+    loaded, so it is installed once and describes itself rather than being described by every
+    voice that borrows it.
+*/
+struct ContentEncoderManifest
+{
+    static constexpr int supportedSchemaVersion = 1;
+
+    /** @brief The directory it is installed in, named for the model rather than the file. */
+    static constexpr const char* directoryName = "ContentVec";
+
+    juce::String graphFile;
+    std::string inputName;
+    std::string outputName;
+
+    int sampleRate { 16000 };
+    int frameRate { 50 };
+    int featureDim { 768 };
+    int minimumNumSamples { 400 };
+
+    static std::optional<ContentEncoderManifest> parse (const juce::File& file, juce::String& error);
+};
+
+/** @brief What a pitch estimator installed beside the voices says about itself.
+
+    The estimator is RMVPE, which is not trained per singer, so it carries its own front end
+    and its own decoding constants: the mel filter bank it wants is its business, not a voice's.
+*/
+struct PitchEstimatorManifest
+{
+    static constexpr int supportedSchemaVersion = 1;
+
+    static constexpr const char* directoryName = "RMVPE";
+
+    juce::String graphFile;
+    juce::String filterBankFile;
+    std::string inputName;
+    std::string outputName;
+
+    int sampleRate { 16000 };
+    MelSpectrogram::Configuration melConfiguration;
+
+    int numPitchBins { 360 };
+    double centsOrigin { 1997.3794084376191 };
+    double centsPerBin { 20.0 };
+    double centsReferenceHz { 10.0 };
+    int localAverageRadius { 4 };
+    float salienceThreshold { 0.03f };
+    int frameCountMultiple { 32 };
+    double minimumFrequencyHz { 50.0 };
+    double maximumFrequencyHz { 1100.0 };
+
+    static std::optional<PitchEstimatorManifest> parse (const juce::File& file, juce::String& error);
+};
+
 /** @brief Every constant the pipeline needs, parsed from a voice's manifest.json. */
 struct ModelManifest
 {
@@ -92,6 +149,26 @@ struct ModelManifest
     {
         return retrievalFile.isNotEmpty() && numRetrievalVectors > 0;
     }
+
+    /** @brief Takes a shared content encoder's word for what it is over the voice's copy of it.
+        @param encoder  What the installed encoder says about itself.
+        @param error    Set when the encoder does not fit this voice.
+        @return True when the encoder was adopted.
+    */
+    bool adopt (const ContentEncoderManifest& encoder, juce::String& error);
+
+    /** @brief Takes a shared pitch estimator's word for what it is over the voice's copy of it.
+        @param estimator  What the installed estimator says about itself.
+        @param error      Set when the estimator does not fit this voice.
+        @return True when the estimator was adopted.
+    */
+    bool adopt (const PitchEstimatorManifest& estimator, juce::String& error);
+
+    /** @brief Whether the rates the graphs work at fit together.
+        @param error  Set when the conditioning rate is not a whole multiple of the feature rate.
+        @return True when the pipeline's frame rates line up.
+    */
+    [[nodiscard]] bool checkFrameRates (juce::String& error) const;
 
     static std::optional<ModelManifest> parse (const juce::File& file, juce::String& error);
 };

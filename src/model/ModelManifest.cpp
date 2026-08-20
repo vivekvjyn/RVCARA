@@ -64,6 +64,64 @@ namespace
         return value.isVoid() || value.isUndefined() ? fallback : static_cast<bool> (value);
     }
 
+    /** @brief Opens a JSON object and checks the schema version it declares. */
+    juce::var openConfiguration (const juce::File& file,
+                                 int supportedSchemaVersion,
+                                 juce::String& error)
+    {
+        error.clear();
+
+        if (! file.existsAsFile())
+        {
+            error = "no configuration at " + file.getFullPathName();
+            return {};
+        }
+
+        const auto parsed = juce::JSON::parse (file.loadFileAsString());
+
+        if (parsed.getDynamicObject() == nullptr)
+        {
+            error = file.getFullPathName() + " is not a JSON object";
+            return {};
+        }
+
+        const auto schemaVersion = optionalNumber<int> (parsed.getDynamicObject(), "schemaVersion", 0);
+
+        if (schemaVersion != supportedSchemaVersion)
+        {
+            error = file.getFullPathName() + " declares schema version " + juce::String (schemaVersion)
+                  + "; this build supports version " + juce::String (supportedSchemaVersion);
+            return {};
+        }
+
+        return parsed;
+    }
+
+    /** @brief Reads the file and the two tensor names a shared model's graph section carries. */
+    bool readSharedGraph (const juce::DynamicObject& root,
+                          juce::String& file,
+                          std::string& inputName,
+                          std::string& outputName,
+                          juce::String& error)
+    {
+        const auto* graph = requireObject (root, "graph", error);
+
+        if (graph == nullptr)
+            return false;
+
+        file = graph->getProperty ("file").toString();
+        inputName = graph->getProperty ("input").toString().toRawUTF8();
+        outputName = graph->getProperty ("output").toString().toRawUTF8();
+
+        if (file.isEmpty() || inputName.empty() || outputName.empty())
+        {
+            error = "the graph section needs a file, an input and an output";
+            return false;
+        }
+
+        return true;
+    }
+
     bool readGraph (const juce::DynamicObject* graphs,
                     const juce::Identifier& role,
                     juce::String& file,
@@ -118,6 +176,131 @@ namespace
         outputName = outputNames.front();
         return true;
     }
+}
+
+std::optional<ContentEncoderManifest> ContentEncoderManifest::parse (const juce::File& file,
+                                                                     juce::String& error)
+{
+    const auto parsed = openConfiguration (file, supportedSchemaVersion, error);
+    auto* root = parsed.getDynamicObject();
+
+    if (root == nullptr)
+        return std::nullopt;
+
+    ContentEncoderManifest encoder;
+
+    if (! readSharedGraph (*root, encoder.graphFile, encoder.inputName, encoder.outputName, error))
+        return std::nullopt;
+
+    encoder.sampleRate = requireNumber<int> (root, "sampleRate", error, "contentEncoder");
+    encoder.frameRate = requireNumber<int> (root, "frameRate", error, "contentEncoder");
+    encoder.featureDim = requireNumber<int> (root, "featureDim", error, "contentEncoder");
+    encoder.minimumNumSamples = optionalNumber<int> (root, "minimumNumSamples", 400);
+
+    if (error.isNotEmpty())
+        return std::nullopt;
+
+    return encoder;
+}
+
+std::optional<PitchEstimatorManifest> PitchEstimatorManifest::parse (const juce::File& file,
+                                                                     juce::String& error)
+{
+    const auto parsed = openConfiguration (file, supportedSchemaVersion, error);
+    auto* root = parsed.getDynamicObject();
+
+    if (root == nullptr)
+        return std::nullopt;
+
+    PitchEstimatorManifest estimator;
+
+    if (! readSharedGraph (*root, estimator.graphFile, estimator.inputName, estimator.outputName, error))
+        return std::nullopt;
+
+    const auto* frontEnd = requireObject (*root, "frontEnd", error);
+    estimator.sampleRate = requireNumber<int> (frontEnd, "sampleRate", error, "frontEnd");
+    estimator.filterBankFile = frontEnd != nullptr ? frontEnd->getProperty ("filterBankFile").toString()
+                                                   : juce::String();
+
+    auto& mel = estimator.melConfiguration;
+    mel.fftSize = requireNumber<int> (frontEnd, "fftSize", error, "frontEnd");
+    mel.windowSize = optionalNumber<int> (frontEnd, "windowSize", mel.fftSize);
+    mel.hopSizeInSamples = requireNumber<int> (frontEnd, "hopSizeInSamples", error, "frontEnd");
+    mel.numMelBins = requireNumber<int> (frontEnd, "numMelBins", error, "frontEnd");
+    mel.numBins = optionalNumber<int> (frontEnd, "numBins", mel.fftSize / 2 + 1);
+    mel.magnitudeFloor = optionalNumber<float> (frontEnd, "magnitudeFloor", 1.0e-5f);
+    mel.isCentred = optionalBool (frontEnd, "isCentred", true);
+
+    const auto* decoder = requireObject (*root, "decoder", error);
+    estimator.numPitchBins = requireNumber<int> (decoder, "numPitchBins", error, "decoder");
+    estimator.centsOrigin = requireNumber<double> (decoder, "centsOrigin", error, "decoder");
+    estimator.centsPerBin = requireNumber<double> (decoder, "centsPerBin", error, "decoder");
+    estimator.centsReferenceHz = optionalNumber<double> (decoder, "centsReferenceHz", 10.0);
+    estimator.localAverageRadius = optionalNumber<int> (decoder, "localAverageRadius", 4);
+    estimator.salienceThreshold = optionalNumber<float> (decoder, "salienceThreshold", 0.03f);
+    estimator.frameCountMultiple = optionalNumber<int> (decoder, "frameCountMultiple", 32);
+    estimator.minimumFrequencyHz = optionalNumber<double> (decoder, "minimumFrequencyHz", 50.0);
+    estimator.maximumFrequencyHz = optionalNumber<double> (decoder, "maximumFrequencyHz", 1100.0);
+
+    if (estimator.filterBankFile.isEmpty())
+        error = "the front end section names no filter bank";
+
+    if (error.isNotEmpty())
+        return std::nullopt;
+
+    return estimator;
+}
+
+bool ModelManifest::adopt (const ContentEncoderManifest& encoder, juce::String& error)
+{
+    if (encoder.featureDim != featureDim)
+    {
+        error = "the installed content encoder returns " + juce::String (encoder.featureDim)
+              + "-D features and " + name + " was trained on " + juce::String (featureDim) + "-D";
+        return false;
+    }
+
+    contentEncoderInput = encoder.inputName;
+    contentEncoderOutput = encoder.outputName;
+    contentSampleRate = encoder.sampleRate;
+    contentFrameRate = encoder.frameRate;
+    contentMinimumNumSamples = encoder.minimumNumSamples;
+
+    return true;
+}
+
+bool ModelManifest::adopt (const PitchEstimatorManifest& estimator, juce::String& error)
+{
+    pitchEstimatorInput = estimator.inputName;
+    pitchEstimatorOutput = estimator.outputName;
+    pitchSampleRate = estimator.sampleRate;
+    melConfiguration = estimator.melConfiguration;
+    melFilterBankFile = estimator.filterBankFile;
+
+    numPitchBins = estimator.numPitchBins;
+    centsOrigin = estimator.centsOrigin;
+    centsPerBin = estimator.centsPerBin;
+    centsReferenceHz = estimator.centsReferenceHz;
+    localAverageRadius = estimator.localAverageRadius;
+    salienceThreshold = estimator.salienceThreshold;
+    frameCountMultiple = estimator.frameCountMultiple;
+    pitchMinimumHz = estimator.minimumFrequencyHz;
+    pitchMaximumHz = estimator.maximumFrequencyHz;
+
+    return checkFrameRates (error);
+}
+
+bool ModelManifest::checkFrameRates (juce::String& error) const
+{
+    if (contentFrameRate <= 0 || getPitchFrameRate() % contentFrameRate != 0)
+    {
+        error = "content frame rate " + juce::String (contentFrameRate)
+              + " Hz does not divide the conditioning rate "
+              + juce::String (getPitchFrameRate()) + " Hz";
+        return false;
+    }
+
+    return true;
 }
 
 std::optional<ModelManifest> ModelManifest::parse (const juce::File& file, juce::String& error)
@@ -265,13 +448,8 @@ std::optional<ModelManifest> ModelManifest::parse (const juce::File& file, juce:
     if (error.isNotEmpty())
         return std::nullopt;
 
-    if (manifest.contentFrameRate <= 0 || manifest.getPitchFrameRate() % manifest.contentFrameRate != 0)
-    {
-        error = "content frame rate " + juce::String (manifest.contentFrameRate)
-              + " Hz does not divide the conditioning rate "
-              + juce::String (manifest.getPitchFrameRate()) + " Hz";
+    if (! manifest.checkFrameRates (error))
         return std::nullopt;
-    }
 
     if (manifest.speakerId < 0 || manifest.speakerId >= manifest.numSpeakers)
     {

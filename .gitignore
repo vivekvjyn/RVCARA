@@ -15,6 +15,14 @@ third_party/onnxruntime/
 
 res/models/*
 !res/models/README.md
+
+# The shared analysis models are assets, but the configurations describing them are ours.
+!res/models/ContentVec/
+res/models/ContentVec/*
+!res/models/ContentVec/config.json
+!res/models/RMVPE/
+res/models/RMVPE/*
+!res/models/RMVPE/config.json
 *.onnx
 *.ort
 *.hnsw
