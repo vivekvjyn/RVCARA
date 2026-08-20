@@ -63,6 +63,26 @@ namespace
         return black[static_cast<std::size_t> (((midiNote % 12) + 12) % 12)];
     }
 
+    /** @brief Steps a colour across four stops, which is how far a note has drifted out of tune. */
+    juce::Colour stepColour (juce::Colour inTune,
+                             juce::Colour drifting,
+                             juce::Colour off,
+                             juce::Colour wayOff,
+                             float position)
+    {
+        const auto scaled = juce::jlimit (0.0f, 3.0f, position * 3.0f);
+        const auto step = static_cast<int> (scaled);
+        const auto fraction = scaled - static_cast<float> (step);
+
+        switch (step)
+        {
+            case 0:  return inTune.interpolatedWith (drifting, fraction);
+            case 1:  return drifting.interpolatedWith (off, fraction);
+            case 2:  return off.interpolatedWith (wayOff, fraction);
+            default: return wayOff;
+        }
+    }
+
     /** @brief Fills a shape the way a note body is filled: darker at its edges than its middle. */
     void fillBody (juce::Graphics& graphics,
                    const juce::Path& body,
@@ -1072,11 +1092,11 @@ void PitchTrack::paintRows (juce::Graphics& graphics) const
 
         if (isBlackKey (midiNote))
         {
-            graphics.setColour (Palette::well.brighter (0.10f));
+            graphics.setColour (Palette::gridRow);
             graphics.fillRect (0.0f, top, width, rowHeight);
         }
 
-        graphics.setColour (midiNote % 12 == 0 ? Palette::edge : Palette::rule);
+        graphics.setColour (midiNote % 12 == 0 ? Palette::edge : Palette::gridLine);
         graphics.fillRect (0.0f, top + rowHeight - Metrics::hairline, width, Metrics::hairline);
     }
 }
@@ -1091,7 +1111,7 @@ void PitchTrack::paintTimeGrid (juce::Graphics& graphics) const
     {
         const auto x = getXForSeconds (second);
 
-        graphics.setColour (std::fmod (second, 5.0) < 0.5 ? Palette::edge : Palette::rule);
+        graphics.setColour (std::fmod (second, 5.0) < 0.5 ? Palette::edge : Palette::gridLine);
         graphics.fillRect (x, 0.0f, Metrics::hairline, height);
     }
 }
@@ -1239,8 +1259,10 @@ void PitchTrack::paintNotes (juce::Graphics& graphics) const
                                          std::abs (heard - snapToScale (heard)) / fullyOffSemitones);
 
         fillBody (graphics, body,
-                  Palette::inTuneCentre.interpolatedWith (Palette::offCentre, offBy),
-                  Palette::inTuneSide.interpolatedWith (Palette::offSide, offBy));
+                  stepColour (Palette::inTuneCentre, Palette::driftingCentre,
+                              Palette::offCentre, Palette::wayOffCentre, offBy),
+                  stepColour (Palette::inTuneSide, Palette::driftingSide,
+                              Palette::offSide, Palette::wayOffSide, offBy));
 
         if (note.depth != 1.0f || note.tiltLeft != 0.0f || note.tiltRight != 0.0f)
         {
@@ -1338,7 +1360,7 @@ void PitchTrack::paintCurve (juce::Graphics& graphics,
 
 void PitchTrack::paint (juce::Graphics& graphics)
 {
-    graphics.fillAll (Palette::well);
+    graphics.fillAll (Palette::grid);
 
     paintRows (graphics);
     paintTimeGrid (graphics);

@@ -230,8 +230,11 @@ An edit re-renders through the vocoder like any other setting, arriving progress
 edited note is audible before the rest of the region has finished. Editing needs the notes and
 the region, so it is offered under ARA only; loaded as an insert the roll still draws.
 
-The panel's neutrals are warm and its one saturated colour is red, which is why a failure is
-reported in amber: at a glance an alert has to look like something other than a selection.
+The palette is PitchNet's, taken from its `Theme.cpp` rather than eyeballed: blue-grey neutrals
+under a brand purple, an amber for warnings and a softer red for errors. A note's body steps
+through the four colours theirs does as it drifts off the nearest degree — blue in tune, then
+purple, then pink, then red at a quarter tone out — so how far out of tune a note is can be read
+from across the room.
 
 There are no knobs. The parameters below still exist and the host can automate every one,
 reached through the generic parameter view.

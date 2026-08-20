@@ -12,36 +12,45 @@ public:
 
     /** @brief Colours named for the role they play, never for the colour they are.
 
-        The neutrals are warm rather than blue, so the accent reads as the one saturated thing
-        on the panel. Alert is amber rather than red precisely because the accent is red: a
-        failure has to be distinguishable from a selection at a glance.
+        The values are PitchNet's, from its Theme.cpp, so the two read as the same instrument.
     */
     struct Palette
     {
-        inline static const juce::Colour ground { 0xff141010 };
-        inline static const juce::Colour bar { 0xff1c1616 };
-        inline static const juce::Colour card { 0xff231b1b };
-        inline static const juce::Colour well { 0xff100c0c };
-        inline static const juce::Colour edge { 0xff3a2b2b };
-        inline static const juce::Colour rule { 0xff241b1b };
-        inline static const juce::Colour text { 0xfff6eeed };
-        inline static const juce::Colour dimText { 0xff9c8a88 };
-        inline static const juce::Colour accent { 0xffff4d5e };
-        inline static const juce::Colour accentDim { 0xff8f2b38 };
-        inline static const juce::Colour silhouette { 0xff33262a };
-        inline static const juce::Colour alert { 0xffffb454 };
+        inline static const juce::Colour ground { 0xff1c1c1c };
+        inline static const juce::Colour bar { 0xff161922 };
+        inline static const juce::Colour card { 0xff222737 };
+        inline static const juce::Colour well { 0xff0d0b0b };
+        inline static const juce::Colour edge { 0xff282e40 };
+        inline static const juce::Colour rule { 0xff1e2333 };
+        inline static const juce::Colour text { 0xffeceff5 };
+        inline static const juce::Colour dimText { 0xff8891a6 };
+        inline static const juce::Colour accent { 0xff7c6aff };
+        inline static const juce::Colour accentDim { 0xff3d4562 };
+        inline static const juce::Colour silhouette { 0xff232940 };
+        inline static const juce::Colour alert { 0xffffb626 };
 
-        /** @brief The take as it was sung, kept neutral so the edit is the coloured thing. */
-        inline static const juce::Colour sungCurve { 0xff8d7b76 };
+        /** @brief The grid the notes sit on, and the lines ruled across it. */
+        inline static const juce::Colour grid { 0xff161922 };
+        inline static const juce::Colour gridRow { 0xff131620 };
+        inline static const juce::Colour gridLine { 0xff0d0b0b };
+
+        /** @brief The take as it was sung, kept quiet so the edit is the loud thing. */
+        inline static const juce::Colour sungCurve { 0xff7e8899 };
 
         /** @brief The melody the voice actually sang, drawn over everything. */
-        inline static const juce::Colour editedCurve { 0xfffff2f0 };
+        inline static const juce::Colour editedCurve { 0xffe6e6e6 };
 
-        /** @brief A note's body, from its middle out, as it drifts off the nearest degree. */
-        inline static const juce::Colour inTuneCentre { 0xffff5f6d };
-        inline static const juce::Colour inTuneSide { 0xffb02434 };
-        inline static const juce::Colour offCentre { 0xffffb45c };
-        inline static const juce::Colour offSide { 0xffc06a18 };
+        /** @brief A note's body, from its middle out, across the four steps it takes from in
+                   tune to a quarter tone out: blue, purple, pink, red.
+        */
+        inline static const juce::Colour inTuneCentre { 0xff1983e0 };
+        inline static const juce::Colour inTuneSide { 0xff0021e2 };
+        inline static const juce::Colour driftingCentre { 0xffd66cff };
+        inline static const juce::Colour driftingSide { 0xff971cff };
+        inline static const juce::Colour offCentre { 0xffff90ed };
+        inline static const juce::Colour offSide { 0xfff624b7 };
+        inline static const juce::Colour wayOffCentre { 0xfff95d5d };
+        inline static const juce::Colour wayOffSide { 0xffff0000 };
     };
 
     /** @brief The type sizes, in points. */

@@ -400,7 +400,7 @@ void PitchCurveView::paintCaption (juce::Graphics& graphics) const
 
 void PitchCurveView::paint (juce::Graphics& graphics)
 {
-    graphics.fillAll (Palette::well);
+    graphics.fillAll (Palette::grid);
 
     paintGutter (graphics, gutterBounds);
     paintRuler (graphics, rulerBounds);
