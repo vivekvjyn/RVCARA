@@ -1,11 +1,62 @@
 #include "model/VoiceModel.h"
 
 #include "common/ConversionSettings.h"
+#include "model/VoiceModelLibrary.h"
 
+#include <algorithm>
 #include <vector>
 
 namespace rvcara
 {
+namespace
+{
+    /** @brief The names the two universal graphs carry upstream, which is what they are
+               installed as when they are shared rather than copied into every voice.
+    */
+    constexpr const char* sharedContentEncoderFile = "hubert_base.onnx";
+    constexpr const char* sharedPitchEstimatorFile = "rmvpe.onnx";
+
+    /** @brief Finds a graph: the voice's own copy first, then the one installed beside the voices.
+        @param directory   The voice's directory.
+        @param named       The file the manifest asks for.
+        @param sharedName  What the same graph is called upstream, when it is shared.
+        @return The file to load, which may not exist.
+    */
+    juce::File findGraph (const juce::File& directory,
+                          const juce::String& named,
+                          const juce::String& sharedName)
+    {
+        if (const auto own = directory.getChildFile (named); own.existsAsFile())
+            return own;
+
+        if (const auto shared = VoiceModelLibrary::findAssetFile (named); shared.existsAsFile())
+            return shared;
+
+        return VoiceModelLibrary::findAssetFile (sharedName);
+    }
+
+    /** @brief Reports a shared graph that is not the one the manifest describes.
+        @param session   The graph as loaded.
+        @param file      Where it came from, so the message says which copy is wrong.
+        @param wanted    The input name the manifest declares.
+        @param role      What the graph is to the pipeline, for the message.
+        @return An empty string when the graph matches, otherwise what is wrong with it.
+    */
+    juce::String describeMismatch (const OnnxSession& session,
+                                   const juce::File& file,
+                                   const std::string& wanted,
+                                   const juce::String& role)
+    {
+        const auto names = session.getInputNames();
+
+        if (std::find (names.begin(), names.end(), wanted) != names.end())
+            return {};
+
+        return "the " + role + " at " + file.getFullPathName() + " takes no input called "
+             + juce::String (wanted) + ", so it is not the graph this voice was exported against";
+    }
+} // namespace
+
 VoiceModel::~VoiceModel() = default;
 
 ConversionSettings VoiceModel::getDefaultSettings() const noexcept
@@ -36,17 +87,33 @@ std::unique_ptr<VoiceModel> VoiceModel::load (const juce::File& directory,
     model->manifest = std::move (*parsed);
     const auto& manifest = model->manifest;
 
-    if (! model->contentEncoder.load (directory.getChildFile (manifest.contentEncoderFile), numThreads))
-    {
-        error = model->contentEncoder.getError();
-        return nullptr;
-    }
+    const auto contentEncoderFile = findGraph (directory, manifest.contentEncoderFile,
+                                               sharedContentEncoderFile);
 
-    if (! model->pitchNetwork.load (directory.getChildFile (manifest.pitchEstimatorFile), numThreads))
-    {
-        error = model->pitchNetwork.getError();
+    model->contentEncoder = OnnxSession::getShared (contentEncoderFile, numThreads, error);
+
+    if (model->contentEncoder == nullptr)
         return nullptr;
-    }
+
+    error = describeMismatch (*model->contentEncoder, contentEncoderFile,
+                              manifest.contentEncoderInput, "content encoder");
+
+    if (error.isNotEmpty())
+        return nullptr;
+
+    const auto pitchEstimatorFile = findGraph (directory, manifest.pitchEstimatorFile,
+                                               sharedPitchEstimatorFile);
+
+    model->pitchNetwork = OnnxSession::getShared (pitchEstimatorFile, numThreads, error);
+
+    if (model->pitchNetwork == nullptr)
+        return nullptr;
+
+    error = describeMismatch (*model->pitchNetwork, pitchEstimatorFile,
+                              manifest.pitchEstimatorInput, "pitch estimator");
+
+    if (error.isNotEmpty())
+        return nullptr;
 
     if (! model->vocoder.load (directory.getChildFile (manifest.vocoderFile), numThreads))
     {
@@ -91,7 +158,7 @@ std::unique_ptr<VoiceModel> VoiceModel::load (const juce::File& directory,
 
     model->pitchEstimator = std::make_unique<PitchEstimator> (model->manifest,
                                                               *model->melSpectrogram,
-                                                              model->pitchNetwork);
+                                                              *model->pitchNetwork);
 
     model->inputFilter = ZeroPhaseFilter (manifest.highPassSections, manifest.highPassPadLength);
 

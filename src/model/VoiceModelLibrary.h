@@ -43,6 +43,12 @@ public:
     */
     [[nodiscard]] static juce::File findAssetDirectory (const juce::String& name);
 
+    /** @brief Finds a shared asset file installed beside the voices.
+        @param name  The file's name, such as "rmvpe.onnx".
+        @return The first search path that holds it, or a file that does not exist.
+    */
+    [[nodiscard]] static juce::File findAssetFile (const juce::String& name);
+
 private:
 
     [[nodiscard]] static std::optional<Entry> describeDirectory (const juce::File& directory);

@@ -34,7 +34,7 @@ public:
 
     [[nodiscard]] const juce::File& getDirectory() const noexcept { return sourceDirectory; }
 
-    [[nodiscard]] const OnnxSession& getContentEncoder() const noexcept { return contentEncoder; }
+    [[nodiscard]] const OnnxSession& getContentEncoder() const noexcept { return *contentEncoder; }
     [[nodiscard]] const OnnxSession& getVocoder() const noexcept { return vocoder; }
     [[nodiscard]] const PitchEstimator& getPitchEstimator() const noexcept { return *pitchEstimator; }
     [[nodiscard]] const ZeroPhaseFilter& getInputFilter() const noexcept { return inputFilter; }
@@ -52,8 +52,10 @@ private:
     ModelManifest manifest;
     juce::File sourceDirectory;
 
-    OnnxSession contentEncoder;
-    OnnxSession pitchNetwork;
+    /** @brief Borrowed rather than owned: every voice runs the same two graphs. */
+    std::shared_ptr<const OnnxSession> contentEncoder;
+    std::shared_ptr<const OnnxSession> pitchNetwork;
+
     OnnxSession vocoder;
 
     BinaryMatrix melFilterBank;

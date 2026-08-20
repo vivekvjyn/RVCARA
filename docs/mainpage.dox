@@ -84,16 +84,33 @@ On Linux, JUCE needs ALSA, FreeType, Fontconfig, X11 and GL development packages
 
 @section voices Voices
 
-A voice is a directory under `res/models/<name>/` holding `content_encoder.onnx` (a
-ContentVec-initialised HuBERT), `pitch_estimator.onnx` (RMVPE), `vocoder.onnx` (the trained
-voice: a VITS flow into an NSF HiFi-GAN), `mel_filter_bank.bin`, `retrieval.bin` (the timbre
-codebook) and `manifest.json`.
+A voice is a directory under `res/models/<name>/` holding `vocoder.onnx` (the trained voice: a
+VITS flow into an NSF HiFi-GAN), `mel_filter_bank.bin`, `retrieval.bin` (the timbre codebook)
+and `manifest.json`.
+
+Two of the graphs the pipeline runs are not the voice at all. The content encoder is
+ContentVec-initialised HuBERT and the pitch estimator is RMVPE; neither is fine-tuned per
+singer, and between them they are 740 MB of a voice's 1.2 GB. They therefore live beside the
+voices under the names they carry upstream, `hubert_base.onnx` and `rmvpe.onnx`, and a voice
+directory holding its own copy is a duplicate rather than a requirement.
+
+rvcara::VoiceModel resolves each of them in turn: the voice's own copy, then the name the
+manifest asks for installed beside the voices, then the upstream name. An export that still
+ships its own copies loads exactly as it did; one that does not picks the shared graph up. A
+graph found that way is checked against the input name the manifest declares, so the wrong
+copy is reported at load rather than at the first conversion.
+
+rvcara::OnnxSession::getShared then keeps one session per resolved path for as long as any
+voice is using it, so changing voice reloads the vocoder and the codebook and nothing else.
+Keying on the path rather than on the role is what makes that safe: two voices share a session
+only when they literally name the same file.
 
 rvcara::VoiceModelLibrary searches, in increasing precedence: the shared application data
 directory, the user's application data directory, this working copy's `res/models` (compiled
 in at configure time, since a plug-in cannot reach the repository by a relative path), and any
-path in `RVCARA_MODEL_PATH`. The same search finds the shared assets that are not voices,
-which is how `GAME/` is located.
+path in `RVCARA_MODEL_PATH`. The same search finds the assets that are not voices, which is how
+`GAME/`, `rmvpe.onnx` and `hubert_base.onnx` are located; only directories carrying a
+`manifest.json` are offered as voices, so the shared assets never appear in the selector.
 
 Every pipeline constant lives in `manifest.json`, so a model trained at another sample rate or
 feature width loads without a plug-in release. The ONNX tensor names are read from it too.
@@ -187,7 +204,8 @@ Retrieval uses hnswlib rather than exact search: the codebook holds 61,893 vecto
 dimensions, and exact search is about 9.5 GFLOP per second of audio.
 
 A warm voice load is 2 s; the first load of a voice is around 45 s, because the retrieval graph
-is built and cached beside the model.
+is built and cached beside the model. Changing voice while another is already loaded costs less
+than that again, since the content encoder and the pitch estimator stay where they are.
 
 @section verification Verification status
 

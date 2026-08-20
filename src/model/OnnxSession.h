@@ -5,6 +5,7 @@
 #include <juce_core/juce_core.h>
 
 #include <cstdint>
+#include <memory>
 #include <string>
 #include <vector>
 
@@ -52,6 +53,22 @@ public:
     OnnxSession& operator= (OnnxSession&&) noexcept;
 
     bool load (const juce::File& file, int numThreads = 0);
+
+    /** @brief Returns the session for a graph, loading it once and lending it to every caller.
+
+        The content encoder and the pitch estimator are the same graphs whichever voice is
+        loaded, and between them they are most of a voice's bytes, so changing voice must not
+        reload them. Sessions are kept per resolved path, so two voices share one only when
+        they name the same file, and a graph is dropped once the last voice using it goes.
+
+        @param file        The graph to load.
+        @param numThreads  Intra-op threads, honoured on the first load of a path.
+        @param error       Set when the graph could not be loaded.
+        @return The shared session, or nullptr when it could not be loaded.
+    */
+    [[nodiscard]] static std::shared_ptr<const OnnxSession> getShared (const juce::File& file,
+                                                                       int numThreads,
+                                                                       juce::String& error);
 
     [[nodiscard]] std::vector<Ort::Value> run (const std::vector<TensorView>& inputs,
                                                const std::vector<const char*>& outputNames) const;

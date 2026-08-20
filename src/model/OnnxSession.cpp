@@ -1,5 +1,6 @@
 #include "model/OnnxSession.h"
 
+#include <map>
 #include <utility>
 
 namespace rvcara
@@ -60,6 +61,37 @@ bool OnnxSession::load (const juce::File& file, int numThreads)
         session.reset();
         return false;
     }
+}
+
+std::shared_ptr<const OnnxSession> OnnxSession::getShared (const juce::File& file,
+                                                           int numThreads,
+                                                           juce::String& error)
+{
+    static juce::CriticalSection loadLock;
+    static std::map<juce::String, std::weak_ptr<const OnnxSession>> loaded;
+
+    const auto path = file.getFullPathName();
+
+    const juce::ScopedLock lock { loadLock };
+
+    if (const auto found = loaded.find (path); found != loaded.end())
+    {
+        if (auto existing = found->second.lock())
+            return existing;
+
+        loaded.erase (found);
+    }
+
+    auto session = std::make_shared<OnnxSession>();
+
+    if (! session->load (file, numThreads))
+    {
+        error = session->getError();
+        return nullptr;
+    }
+
+    loaded[path] = session;
+    return session;
 }
 
 std::vector<std::string> OnnxSession::getInputNames() const

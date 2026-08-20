@@ -54,22 +54,40 @@ std::vector<juce::File> VoiceModelLibrary::buildSearchPaths()
     return paths;
 }
 
+namespace
+{
+    template <typename Matches>
+    juce::File findAsset (const std::vector<juce::File>& searchPaths,
+                          const juce::String& name,
+                          Matches&& matches)
+    {
+        juce::File firstCandidate;
+
+        for (const auto& searchPath : searchPaths)
+        {
+            const auto candidate = searchPath.getChildFile (name);
+
+            if (matches (candidate))
+                return candidate;
+
+            if (firstCandidate == juce::File())
+                firstCandidate = candidate;
+        }
+
+        return firstCandidate;
+    }
+} // namespace
+
 juce::File VoiceModelLibrary::findAssetDirectory (const juce::String& name)
 {
-    juce::File firstCandidate;
+    return findAsset (buildSearchPaths(), name,
+                      [] (const juce::File& candidate) { return candidate.isDirectory(); });
+}
 
-    for (const auto& searchPath : buildSearchPaths())
-    {
-        const auto candidate = searchPath.getChildFile (name);
-
-        if (candidate.isDirectory())
-            return candidate;
-
-        if (firstCandidate == juce::File())
-            firstCandidate = candidate;
-    }
-
-    return firstCandidate;
+juce::File VoiceModelLibrary::findAssetFile (const juce::String& name)
+{
+    return findAsset (buildSearchPaths(), name,
+                      [] (const juce::File& candidate) { return candidate.existsAsFile(); });
 }
 
 std::optional<VoiceModelLibrary::Entry> VoiceModelLibrary::describeDirectory (const juce::File& directory)
