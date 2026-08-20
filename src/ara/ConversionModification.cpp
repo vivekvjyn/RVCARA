@@ -100,11 +100,13 @@ void ConversionModification::writeNotes (juce::OutputStream& stream, const Pitch
         stream.writeFloat (note.sungMidiNote);
         stream.writeFloat (note.offsetSemitones);
         stream.writeFloat (note.depth);
+        stream.writeFloat (note.tiltLeft);
+        stream.writeFloat (note.tiltRight);
         stream.writeBool (note.isRest);
     }
 }
 
-PitchEdit ConversionModification::readNotes (juce::InputStream& stream)
+PitchEdit ConversionModification::readNotes (juce::InputStream& stream, int version)
 {
     PitchEdit edit;
 
@@ -126,6 +128,13 @@ PitchEdit ConversionModification::readNotes (juce::InputStream& stream)
         note.sungMidiNote = stream.readFloat();
         note.offsetSemitones = stream.readFloat();
         note.depth = stream.readFloat();
+
+        if (version >= 3)
+        {
+            note.tiltLeft = stream.readFloat();
+            note.tiltRight = stream.readFloat();
+        }
+
         note.isRest = stream.readBool();
 
         edit.notes.push_back (note);
@@ -169,7 +178,7 @@ bool ConversionModification::readFromArchive (juce::InputStream& stream)
 
     if (version >= 2)
     {
-        auto storedEdit = readNotes (stream);
+        auto storedEdit = readNotes (stream, version);
 
         if (! storedEdit.notes.empty())
             setNoteState (NoteState::found);
@@ -193,6 +202,6 @@ void ConversionModification::readAndDiscard (juce::InputStream& stream)
     stream.readBool();
 
     if (version >= 2)
-        readNotes (stream);
+        readNotes (stream, version);
 }
 }

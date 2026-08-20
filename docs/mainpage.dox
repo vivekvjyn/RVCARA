@@ -159,11 +159,11 @@ Detection is a job of its own on a thread of its own, so notes arrive while the 
 converting rather than after it.
 
 rvcara::EditedNote stores what the user did to a note as an offset from what was sung rather
-than as an absolute pitch, together with a depth that says how much of the sung contour to
-keep. An untouched note therefore has an offset of zero at full depth, which rvcara::applyPitchEdit
-leaves bit for bit alone; a note that has been moved keeps its own vibrato and scooping, moved
-bodily onto the new pitch. A note's centre is its median rather than its mean, so a slide into
-it does not drag the answer along.
+than as an absolute pitch, together with a depth that says how much of the sung contour to keep
+and a tilt for each edge. An untouched note therefore has an offset of zero at full depth and
+no tilt, which rvcara::applyPitchEdit leaves bit for bit alone; a note that has been moved keeps
+its own vibrato and scooping, moved bodily onto the new pitch. A note's centre is its median
+rather than its mean, so a slide into it does not drag the answer along.
 
 @section panel The panel
 
@@ -181,18 +181,32 @@ waveform runs along the middle C line behind everything. The keyboard follows th
 scroll and the ruler and waveform the horizontal one, so each stays pinned to the axis it
 labels. Opening a conversion centres the view on the sung range.
 
-Dragging a block moves the note; without shift held it lands on the nearest semitone, with
-shift it moves freely. Dragging where two blocks meet moves the boundary between them. Select
-splits the difference between one note and several: shift or command adds to the selection, and
-a tool that acts on nothing selected acts on every note. Split cuts a note where it is clicked
-and Glue joins a note to the one after it. Snap puts the selection on the nearest semitones,
-Shape says how much of the sung contour survives — all the way down to a dead flat note — and
-Reset puts the selection back the way it was sung. Undo and redo cover every gesture, and the
-arrow keys nudge by a semitone, or by a tenth of one with shift held.
+Dragging a block moves the note; without shift held it lands on the nearest degree of the
+chosen scale, with shift it moves freely. Dragging where two blocks meet moves the boundary
+between them, and dragging empty grid draws a band that selects what it touches. Shift or
+command adds to a selection, and a tool given nothing selected acts on every note. Split cuts a
+note where it is clicked and Glue joins a note to the one after it. Snap puts the selection on
+the nearest degrees, Reset puts it back the way it was sung, and the scale button chooses what
+"nearest" means — chromatic, or a major or minor key. Undo and redo cover every gesture, and
+the arrow keys nudge by a semitone, or by a tenth of one with shift held.
+
+A note selected on its own carries three controls above it, the way PitchNet's do. The outer
+two tilt the note from its edges toward its middle, which is how a scoop into a note or a fall
+out of it is put there or taken away; the middle one is the same shaping the Shape slider does,
+dragged in place. All three are held rather than clicked, and all three are undoable.
+
+The wheel scrolls the grid, and zooms when it is over the lane that labels the axis: over the
+keyboard it zooms the pitch, over the ruler or the waveform it zooms the time, and in both
+cases the point under the mouse is the point that stays still. Command and the wheel zoom
+wherever the mouse is. While the host is playing, a line follows its transport through the
+region on show.
 
 An edit re-renders through the vocoder like any other setting, arriving progressively, so the
 edited note is audible before the rest of the region has finished. Editing needs the notes and
 the region, so it is offered under ARA only; loaded as an insert the editor still draws.
+
+The panel's neutrals are warm and its one saturated colour is red, which is why a failure is
+reported in amber: at a glance an alert has to look like something other than a selection.
 
 There are no knobs. The parameters below still exist and the host can automate every one,
 reached through the generic parameter view.
@@ -234,7 +248,7 @@ than that again, since the content encoder and the pitch estimator stay where th
 
 @section verification Verification status
 
-- **Verified.** 48 GoogleTest cases pass. The exported assets match the reference
+- **Verified.** 51 GoogleTest cases pass. The exported assets match the reference
   implementation on real audio: pitch within 1.5 to 6.8 cents, correlation at least 0.999,
   log-mel distance 0.30 to 0.60, durations sample-exact. The DSP is checked against NumPy and
   SciPy through the fixtures in `tests/fixtures`, the mel spectrogram to 1e-3 and the

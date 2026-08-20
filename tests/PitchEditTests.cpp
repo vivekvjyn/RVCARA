@@ -175,3 +175,57 @@ TEST (PitchEditTests, MovingANoteChangesTheHash)
     EXPECT_NE (edit.getHash(), before);
     EXPECT_FALSE (edit.isNeutral());
 }
+
+TEST (PitchEditTests, TiltRaisesTheStartAndFadesToNothingByTheMiddle)
+{
+    auto track = makeTrack ({ 60.0f, 60.0f, 60.0f, 60.0f, 60.0f });
+
+    PitchEdit edit;
+    auto note = makeNote (0.0, 0.05);
+    note.tiltLeft = 2.0f;
+    edit.notes.push_back (note);
+
+    ASSERT_FALSE (edit.isNeutral());
+
+    applyPitchEdit (track, edit, frameRate, 0);
+
+    EXPECT_NEAR (midiAt (track, 0), 62.0f, 1.0e-3f);
+    EXPECT_NEAR (midiAt (track, 1), 61.0f, 1.0e-3f);
+    EXPECT_NEAR (midiAt (track, 2), 60.0f, 1.0e-3f);
+    EXPECT_NEAR (midiAt (track, 3), 60.0f, 1.0e-3f);
+    EXPECT_NEAR (midiAt (track, 4), 60.0f, 1.0e-3f);
+}
+
+TEST (PitchEditTests, TiltRaisesTheEndAndFadesBackToTheMiddle)
+{
+    auto track = makeTrack ({ 60.0f, 60.0f, 60.0f, 60.0f, 60.0f });
+
+    PitchEdit edit;
+    auto note = makeNote (0.0, 0.05);
+    note.tiltRight = -4.0f;
+    edit.notes.push_back (note);
+
+    applyPitchEdit (track, edit, frameRate, 0);
+
+    EXPECT_NEAR (midiAt (track, 0), 60.0f, 1.0e-3f);
+    EXPECT_NEAR (midiAt (track, 2), 60.0f, 1.0e-3f);
+    EXPECT_NEAR (midiAt (track, 3), 58.0f, 1.0e-3f);
+    EXPECT_NEAR (midiAt (track, 4), 56.0f, 1.0e-3f);
+}
+
+TEST (PitchEditTests, TiltAddsToTheOffsetRatherThanReplacingIt)
+{
+    auto track = makeTrack ({ 60.0f, 60.0f, 60.0f });
+
+    PitchEdit edit;
+    auto note = makeNote (0.0, 0.03);
+    note.offsetSemitones = 5.0f;
+    note.tiltLeft = 1.0f;
+    edit.notes.push_back (note);
+
+    applyPitchEdit (track, edit, frameRate, 0);
+
+    EXPECT_NEAR (midiAt (track, 0), 66.0f, 1.0e-3f);
+    EXPECT_NEAR (midiAt (track, 1), 65.0f, 1.0e-3f);
+    EXPECT_NEAR (midiAt (track, 2), 65.0f, 1.0e-3f);
+}

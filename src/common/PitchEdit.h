@@ -22,8 +22,16 @@ struct EditedNote
     /** @brief How far the note moves from where it was sung, in semitones. */
     float offsetSemitones { 0.0f };
 
-    /** @brief How much of the sung contour survives: one keeps all of it, zero is dead flat. */
+    /** @brief How much of the sung contour survives: one keeps all of it, zero is dead flat,
+               and more than one exaggerates what was already there.
+    */
     float depth { 1.0f };
+
+    /** @brief Semitones added at the note's start, fading to nothing by its middle. */
+    float tiltLeft { 0.0f };
+
+    /** @brief Semitones added at the note's end, fading to nothing back to its middle. */
+    float tiltRight { 0.0f };
 
     /** @brief True where the segmenter heard no note, which the editor leaves alone. */
     bool isRest { false };
@@ -31,7 +39,8 @@ struct EditedNote
     /** @brief Whether this note would change the take at all. */
     [[nodiscard]] bool isNeutral() const noexcept
     {
-        return isRest || (offsetSemitones == 0.0f && depth == 1.0f);
+        return isRest
+            || (offsetSemitones == 0.0f && depth == 1.0f && tiltLeft == 0.0f && tiltRight == 0.0f);
     }
 
     /** @brief Where the note is drawn, which is where the singer will land. */
@@ -44,6 +53,8 @@ struct EditedNote
             && sungMidiNote == other.sungMidiNote
             && offsetSemitones == other.offsetSemitones
             && depth == other.depth
+            && tiltLeft == other.tiltLeft
+            && tiltRight == other.tiltRight
             && isRest == other.isRest;
     }
 
@@ -84,8 +95,8 @@ struct PitchEdit
 
 /** @brief Rewrites a sung track so every edited note lands where the edit puts it.
 
-    Each note is moved by its offset and squeezed toward its own centre by its depth, so an
-    offset of zero at full depth returns the track unchanged.
+    Each note is moved by its offset, squeezed toward its own centre by its depth, and tilted
+    from each edge toward the middle, so an untouched note returns the track unchanged.
 
     @param fundamentalFrequencyHz  The track to rewrite in place, one entry per frame.
     @param edit                    The notes to apply.

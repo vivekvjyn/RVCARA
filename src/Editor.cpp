@@ -420,6 +420,10 @@ void Editor::refresh()
     pitchCurveView.setNoteStatus (shownModification != nullptr ? describeNotes (*shownModification)
                                                               : juce::String ("Editing needs ARA"));
 
+    pitchCurveView.setPlayheadSeconds (
+        shownModification != nullptr ? processorReference.getPlayheadInModification (*shownModification)
+                                     : -1.0);
+
     if (shownModification != nullptr
         && report.caption.isEmpty()
         && shownModification->getNoteState() == ConversionModification::NoteState::failed)

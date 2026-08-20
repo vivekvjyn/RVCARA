@@ -249,9 +249,55 @@ bool Processor::isBusesLayoutSupported (const BusesLayout& layouts) const
     return layouts.getMainInputChannelSet() == output;
 }
 
+double Processor::getPlayheadInModification (const ConversionModification& modification) const
+{
+    const auto hostSeconds = hostPositionSeconds.load (std::memory_order_relaxed);
+
+    if (hostSeconds < 0.0)
+        return -1.0;
+
+    const auto findIn = [&] (const auto* renderer)
+    {
+        if (renderer == nullptr)
+            return -1.0;
+
+        for (const auto* playbackRegion : renderer->getPlaybackRegions())
+        {
+            if (playbackRegion->template getAudioModification<ConversionModification>() != &modification)
+                continue;
+
+            const auto intoRegion = hostSeconds - playbackRegion->getStartInPlaybackTime();
+
+            if (intoRegion < 0.0 || intoRegion > playbackRegion->getDurationInPlaybackTime())
+                continue;
+
+            return playbackRegion->getStartInAudioModificationTime() + intoRegion;
+        }
+
+        return -1.0;
+    };
+
+    if (const auto found = findIn (getPlaybackRenderer<juce::ARAPlaybackRenderer>()); found >= 0.0)
+        return found;
+
+    return findIn (getEditorRenderer<juce::ARAEditorRenderer>());
+}
+
 void Processor::processBlock (juce::AudioBuffer<float>& buffer, juce::MidiBuffer&)
 {
     const juce::ScopedNoDenormals noDenormals;
+
+    {
+        auto seconds = -1.0;
+
+        if (auto* hostPlayHead = getPlayHead())
+            if (const auto hostPosition = hostPlayHead->getPosition())
+                if (hostPosition->getIsPlaying())
+                    if (const auto timeInSeconds = hostPosition->getTimeInSeconds())
+                        seconds = *timeInSeconds;
+
+        hostPositionSeconds.store (seconds, std::memory_order_relaxed);
+    }
 
     const auto realtime = isNonRealtime() ? juce::AudioProcessor::Realtime::no
                                           : juce::AudioProcessor::Realtime::yes;

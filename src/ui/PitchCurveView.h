@@ -33,6 +33,9 @@ public:
     /** @brief Says how note detection is getting on, shown at the end of the toolbar. */
     void setNoteStatus (const juce::String& status);
 
+    /** @brief Shows where the host's transport is, or hides the line when given a time before zero. */
+    void setPlayheadSeconds (double seconds);
+
     /** @brief Called with the new note list whenever the user finishes changing it. */
     std::function<void (const PitchEdit&)> onEditChanged;
 
@@ -45,6 +48,7 @@ public:
     void paint (juce::Graphics& graphics) override;
     void paintOverChildren (juce::Graphics& graphics) override;
     void resized() override;
+    void mouseWheelMove (const juce::MouseEvent& event, const juce::MouseWheelDetails& wheel) override;
 
 private:
     /** @brief A viewport that reports scrolling, so the pinned lanes can follow it. */
@@ -68,10 +72,21 @@ private:
     static constexpr int waveformResolution = 4096;
 
     static constexpr int toolButtonWidth = 54;
+    static constexpr int scaleButtonWidth = 96;
 
     void applyZoom();
+
+    /** @brief Zooms while keeping one point of the grid under the mouse.
+        @param factor  What to multiply each scale by, time in x and pitch in y.
+        @param anchor  The point to keep still, in the grid's coordinates.
+    */
+    void applyZoomAround (juce::Point<float> factor, juce::Point<float> anchor);
+
     void rebuildWaveform();
     void scrollToContent();
+
+    void showScaleMenu();
+    void applyScale (int root, int mode);
 
     void chooseTool (PitchTrack::Tool tool);
     void applySelectionDepth();
@@ -94,6 +109,8 @@ private:
     juce::TextButton undoButton { "Undo" };
     juce::TextButton redoButton { "Redo" };
 
+    juce::TextButton scaleButton { "Chromatic" };
+
     juce::Slider shapeSlider { juce::Slider::LinearHorizontal, juce::Slider::NoTextBox };
 
     juce::Slider horizontalScaler { juce::Slider::LinearHorizontal, juce::Slider::NoTextBox };
@@ -102,12 +119,19 @@ private:
     ConversionPointer conversion;
     std::vector<float> waveform;
 
+    juce::Rectangle<int> keyboardBounds;
+    juce::Rectangle<int> rulerBounds;
+    juce::Rectangle<int> waveformBounds;
+    juce::Rectangle<int> toolbarBounds;
     juce::Rectangle<int> shapeLabelBounds;
     juce::Rectangle<int> noteStatusBounds;
     juce::Rectangle<int> timeLabelBounds;
     juce::Rectangle<int> pitchLabelBounds;
 
     juce::String noteStatus;
+    double playheadSeconds { -1.0 };
+    int scaleRoot { 0 };
+    int scaleMode { 0 };
     juce::String caption;
     bool isCaptionAlert { false };
     bool isEditingEnabled { true };

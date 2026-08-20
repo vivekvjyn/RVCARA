@@ -6,6 +6,7 @@
 
 #include <juce_audio_processors/juce_audio_processors.h>
 
+#include <atomic>
 #include <vector>
 
 namespace rvcara
@@ -73,6 +74,12 @@ public:
 
     [[nodiscard]] bool isUsingARA() const { return getConversionDocumentController() != nullptr; }
 
+    /** @brief Where the transport is inside a region, so the editor can draw a playhead.
+        @param modification  The region the editor is showing.
+        @return The time in that region, or a time before zero when the transport is elsewhere.
+    */
+    [[nodiscard]] double getPlayheadInModification (const ConversionModification& modification) const;
+
 private:
     static juce::AudioProcessorValueTreeState::ParameterLayout createParameterLayout();
 
@@ -90,6 +97,8 @@ private:
 
     VoiceLoader insertVoiceLoader;
     InsertConverter insertConverter;
+
+    std::atomic<double> hostPositionSeconds { -1.0 };
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (Processor)
 };

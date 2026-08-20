@@ -43,6 +43,15 @@ public:
         glue
     };
 
+    /** @brief The controls drawn above a note that is on its own in the selection. */
+    enum class Handle
+    {
+        none,
+        tiltLeft,
+        shape,
+        tiltRight
+    };
+
     /** @brief Shows a conversion, or clears the grid when given nullptr. */
     void setConversion (ConversionPointer conversion);
 
@@ -59,6 +68,24 @@ public:
 
     /** @brief Called when the selection changes, so the panel can follow it. */
     std::function<void()> onSelectionChanged;
+
+    /** @brief Asks the panel to zoom, since the viewport rather than the grid owns the scroll.
+        @param factor  What to multiply the current scale by.
+        @param anchor  The point in the grid to keep still, in this component's coordinates.
+    */
+    std::function<void (juce::Point<float> factor, juce::Point<float> anchor)> onZoomRequested;
+
+    /** @brief Sets the notes that snapping lands on.
+        @param rootNote    The key's tonic as a pitch class, zero being C.
+        @param degreeMask  A bit per semitone above the tonic; all twelve means chromatic.
+    */
+    void setScale (int rootNote, int degreeMask);
+
+    /** @brief Shows where the host's transport is, or hides the line when given a time before zero. */
+    void setPlayheadSeconds (double seconds);
+
+    /** @brief Rounds a note onto the nearest degree of the current scale. */
+    [[nodiscard]] float snapToScale (float midiNote) const;
 
     /** @brief Moves every note being worked on onto the nearest semitone. */
     void snapSelection();
@@ -103,6 +130,11 @@ public:
     /** @brief Returns the vertical centre of a note's row, in this component's coordinates. */
     [[nodiscard]] float getRowCentre (float midiNote) const;
 
+    /** @brief Maps between this component's coordinates and the take's time and pitch. */
+    [[nodiscard]] float getXForSeconds (double seconds) const;
+    [[nodiscard]] double getSecondsForX (float x) const;
+    [[nodiscard]] float getMidiNoteForY (float y) const;
+
     /** @brief Returns the length of what is shown, in seconds. */
     [[nodiscard]] double getSeconds() const;
 
@@ -116,6 +148,7 @@ public:
     void mouseUp (const juce::MouseEvent& event) override;
     void mouseDoubleClick (const juce::MouseEvent& event) override;
     void mouseMove (const juce::MouseEvent& event) override;
+    void mouseWheelMove (const juce::MouseEvent& event, const juce::MouseWheelDetails& wheel) override;
     bool keyPressed (const juce::KeyPress& key) override;
 
 private:
@@ -124,14 +157,13 @@ private:
     {
         none,
         pitch,
-        boundary
+        boundary,
+        handle,
+        band
     };
 
     [[nodiscard]] std::optional<float> getYForFrequency (float frequencyHz) const;
     [[nodiscard]] float getXForFrame (int frameIndex) const;
-    [[nodiscard]] float getXForSeconds (double seconds) const;
-    [[nodiscard]] double getSecondsForX (float x) const;
-    [[nodiscard]] float getMidiNoteForY (float y) const;
 
     /** @brief The transposition the panel has to add to draw a note where it will be heard. */
     [[nodiscard]] float getDisplayShift() const;
@@ -141,6 +173,13 @@ private:
     [[nodiscard]] int getNoteAt (juce::Point<float> position) const;
 
     [[nodiscard]] bool isNearBoundary (const EditedNote& note, float x) const;
+
+    /** @brief The note the handles belong to, or -1 when they are not shown. */
+    [[nodiscard]] int getHandledNote() const;
+
+    [[nodiscard]] juce::Rectangle<float> getHandleBounds (const EditedNote& note, Handle which) const;
+
+    [[nodiscard]] Handle getHandleAt (juce::Point<float> position) const;
 
     [[nodiscard]] std::vector<int> getNotesToWorkOn() const;
 
@@ -156,6 +195,8 @@ private:
     void paintTimeGrid (juce::Graphics& graphics) const;
     void paintVoice (juce::Graphics& graphics) const;
     void paintNotes (juce::Graphics& graphics) const;
+    void paintHandles (juce::Graphics& graphics) const;
+    void paintPlayhead (juce::Graphics& graphics) const;
     void paintCurve (juce::Graphics& graphics,
                      const std::vector<float>& track,
                      juce::Colour colour,
@@ -179,6 +220,18 @@ private:
     float dragStartMidiNote { 0.0f };
     std::vector<int> dragNotes;
     std::vector<float> dragStartOffsets;
+
+    Handle grabbedHandle { Handle::none };
+    float grabbedHandleValue { 0.0f };
+
+    juce::Point<float> bandOrigin;
+    juce::Rectangle<float> band;
+    std::vector<char> bandStartSelection;
+
+    int scaleRoot { 0 };
+    int scaleMask { 0xfff };
+
+    double playheadSeconds { -1.0 };
 
     float pixelsPerSecond { 78.0f };
     float rowHeight { 9.0f };

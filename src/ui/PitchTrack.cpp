@@ -5,6 +5,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <limits>
 
 namespace rvcara
 {
@@ -25,6 +26,23 @@ namespace
     constexpr float minimumGrabHeight = 9.0f;
 
     constexpr std::size_t maximumUndoSteps = 64;
+
+    /** @brief The three controls PitchNet puts over a selected note, at the size it uses. */
+    constexpr float handleWidth = 26.0f;
+    constexpr float handleHeight = 11.0f;
+    constexpr float handleGap = 4.0f;
+    constexpr float handleLift = 4.0f;
+
+    /** @brief How far a drag has to travel to move the shape control across its whole range. */
+    constexpr float shapeSemitonesPerUnit = 4.0f;
+
+    constexpr float maximumTiltSemitones = 24.0f;
+    constexpr float maximumDepth = 2.0f;
+
+    constexpr float zoomPerWheelNotch = 0.3f;
+
+    /** @brief A band has to be dragged this far before it selects rather than deselects. */
+    constexpr float minimumBandPixels = 3.0f;
 
     bool isBlackKey (int midiNote)
     {
@@ -72,6 +90,52 @@ void PitchTrack::setTool (Tool newTool)
 
     tool = newTool;
     repaint();
+}
+
+void PitchTrack::setScale (int rootNote, int degreeMask)
+{
+    if (scaleRoot == rootNote && scaleMask == degreeMask)
+        return;
+
+    scaleRoot = rootNote;
+    scaleMask = degreeMask;
+    repaint();
+}
+
+void PitchTrack::setPlayheadSeconds (double seconds)
+{
+    if (juce::approximatelyEqual (playheadSeconds, seconds))
+        return;
+
+    playheadSeconds = seconds;
+    repaint();
+}
+
+float PitchTrack::snapToScale (float midiNote) const
+{
+    const auto nearest = std::round (midiNote);
+
+    if (scaleMask == 0 || (scaleMask & 0xfff) == 0xfff)
+        return nearest;
+
+    auto best = nearest;
+    auto bestDistance = std::numeric_limits<float>::max();
+
+    for (auto candidate = nearest - 2.0f; candidate <= nearest + 2.0f; candidate += 1.0f)
+    {
+        const auto degree = ((static_cast<int> (candidate) - scaleRoot) % 12 + 12) % 12;
+
+        if ((scaleMask & (1 << degree)) == 0)
+            continue;
+
+        if (const auto distance = std::abs (candidate - midiNote); distance < bestDistance)
+        {
+            bestDistance = distance;
+            best = candidate;
+        }
+    }
+
+    return best;
 }
 
 void PitchTrack::setZoom (float newPixelsPerSecond, float newRowHeight)
@@ -205,6 +269,56 @@ int PitchTrack::getNoteAt (juce::Point<float> position) const
 bool PitchTrack::isNearBoundary (const EditedNote& note, float x) const
 {
     return std::abs (getXForSeconds (note.endSeconds) - x) <= edgeGrabPixels;
+}
+
+int PitchTrack::getHandledNote() const
+{
+    auto only = -1;
+
+    for (std::size_t index = 0; index < selection.size() && index < edit.notes.size(); ++index)
+    {
+        if (selection[index] == 0 || edit.notes[index].isRest)
+            continue;
+
+        if (only >= 0)
+            return -1;
+
+        only = static_cast<int> (index);
+    }
+
+    return only;
+}
+
+juce::Rectangle<float> PitchTrack::getHandleBounds (const EditedNote& note, Handle which) const
+{
+    const auto bounds = getNoteBounds (note);
+    const auto groupWidth = handleWidth * 3.0f + handleGap * 2.0f;
+    const auto left = bounds.getCentreX() - groupWidth * 0.5f;
+
+    const auto column = which == Handle::tiltLeft ? 0.0f
+                      : which == Handle::shape    ? 1.0f
+                                                  : 2.0f;
+
+    return { left + (handleWidth + handleGap) * column,
+             bounds.getY() - handleHeight - handleLift,
+             handleWidth,
+             handleHeight };
+}
+
+PitchTrack::Handle PitchTrack::getHandleAt (juce::Point<float> position) const
+{
+    const auto handled = getHandledNote();
+
+    if (handled < 0)
+        return Handle::none;
+
+    const auto& note = edit.notes[static_cast<std::size_t> (handled)];
+
+    for (const auto which : { Handle::tiltLeft, Handle::shape, Handle::tiltRight })
+        if (getHandleBounds (note, which).expanded (2.0f).contains (position))
+            return which;
+
+    return Handle::none;
 }
 
 std::vector<int> PitchTrack::getNotesToWorkOn() const
@@ -343,7 +457,7 @@ void PitchTrack::snapSelection()
     {
         auto& note = edit.notes[static_cast<std::size_t> (index)];
         const auto heard = note.getEditedMidiNote() + shift;
-        note.offsetSemitones += std::round (heard) - heard;
+        note.offsetSemitones += snapToScale (heard) - heard;
     }
 
     commitGesture();
@@ -393,6 +507,8 @@ void PitchTrack::resetSelection()
         auto& note = edit.notes[static_cast<std::size_t> (index)];
         note.offsetSemitones = 0.0f;
         note.depth = 1.0f;
+        note.tiltLeft = 0.0f;
+        note.tiltRight = 0.0f;
     }
 
     commitGesture();
@@ -403,11 +519,49 @@ void PitchTrack::mouseDown (const juce::MouseEvent& event)
     grabKeyboardFocus();
 
     const auto position = event.position;
+
+    if (tool == Tool::select)
+    {
+        if (const auto which = getHandleAt (position); which != Handle::none)
+        {
+            const auto handled = getHandledNote();
+            const auto& note = edit.notes[static_cast<std::size_t> (handled)];
+
+            beginGesture();
+
+            drag = Drag::handle;
+            draggedNote = handled;
+            grabbedHandle = which;
+            grabbedHandleValue = which == Handle::tiltLeft  ? note.tiltLeft
+                               : which == Handle::tiltRight ? note.tiltRight
+                                                            : note.depth;
+            dragStartMidiNote = getMidiNoteForY (position.y);
+            return;
+        }
+    }
+
     const auto index = getNoteAt (position);
 
     if (index < 0)
     {
-        selectOnly (-1);
+        if (tool != Tool::select)
+        {
+            selectOnly (-1);
+            repaint();
+            return;
+        }
+
+        if (! event.mods.isShiftDown() && ! event.mods.isCommandDown())
+            selection.assign (edit.notes.size(), 0);
+
+        bandStartSelection = selection;
+        bandOrigin = position;
+        band = { position.x, position.y, 0.0f, 0.0f };
+        drag = Drag::band;
+
+        if (onSelectionChanged != nullptr)
+            onSelectionChanged();
+
         repaint();
         return;
     }
@@ -515,8 +669,50 @@ void PitchTrack::mouseDown (const juce::MouseEvent& event)
 
 void PitchTrack::mouseDrag (const juce::MouseEvent& event)
 {
+    if (drag == Drag::band)
+    {
+        band = juce::Rectangle<float>::leftTopRightBottom (
+            std::min (bandOrigin.x, event.position.x), std::min (bandOrigin.y, event.position.y),
+            std::max (bandOrigin.x, event.position.x), std::max (bandOrigin.y, event.position.y));
+
+        selection = bandStartSelection;
+        selection.resize (edit.notes.size(), 0);
+
+        if (band.getWidth() >= minimumBandPixels || band.getHeight() >= minimumBandPixels)
+            for (std::size_t index = 0; index < edit.notes.size(); ++index)
+                if (! edit.notes[index].isRest
+                    && getNoteBounds (edit.notes[index]).expanded (0.0f, minimumGrabHeight * 0.5f)
+                           .intersects (band))
+                    selection[index] = 1;
+
+        if (onSelectionChanged != nullptr)
+            onSelectionChanged();
+
+        repaint();
+        return;
+    }
+
     if (drag == Drag::none || draggedNote < 0)
         return;
+
+    if (drag == Drag::handle)
+    {
+        const auto delta = getMidiNoteForY (event.position.y) - dragStartMidiNote;
+        auto& note = edit.notes[static_cast<std::size_t> (draggedNote)];
+
+        if (grabbedHandle == Handle::shape)
+            note.depth = juce::jlimit (0.0f, maximumDepth,
+                                       grabbedHandleValue + delta / shapeSemitonesPerUnit);
+        else if (grabbedHandle == Handle::tiltLeft)
+            note.tiltLeft = juce::jlimit (-maximumTiltSemitones, maximumTiltSemitones,
+                                          grabbedHandleValue + delta);
+        else
+            note.tiltRight = juce::jlimit (-maximumTiltSemitones, maximumTiltSemitones,
+                                           grabbedHandleValue + delta);
+
+        repaint();
+        return;
+    }
 
     if (drag == Drag::boundary)
     {
@@ -549,7 +745,7 @@ void PitchTrack::mouseDrag (const juce::MouseEvent& event)
             const auto startOffset = dragStartOffsets[static_cast<std::size_t> (
                 std::distance (dragNotes.begin(), moving))];
             const auto heard = primary.sungMidiNote + startOffset + delta + getDisplayShift();
-            delta += std::round (heard) - heard;
+            delta += snapToScale (heard) - heard;
         }
     }
 
@@ -565,10 +761,20 @@ void PitchTrack::mouseUp (const juce::MouseEvent&)
     if (drag == Drag::none)
         return;
 
+    const auto wasBanding = drag == Drag::band;
+
     drag = Drag::none;
     draggedNote = -1;
+    grabbedHandle = Handle::none;
     dragNotes.clear();
     dragStartOffsets.clear();
+    band = {};
+
+    if (wasBanding)
+    {
+        repaint();
+        return;
+    }
 
     commitGesture();
 }
@@ -601,6 +807,12 @@ void PitchTrack::mouseMove (const juce::MouseEvent& event)
         return;
     }
 
+    if (getHandleAt (event.position) != Handle::none)
+    {
+        setMouseCursor (juce::MouseCursor::UpDownResizeCursor);
+        return;
+    }
+
     const auto index = getNoteAt (event.position);
 
     if (index < 0)
@@ -617,6 +829,24 @@ void PitchTrack::mouseMove (const juce::MouseEvent& event)
 
     setMouseCursor (nearBoundary ? juce::MouseCursor::LeftRightResizeCursor
                                  : juce::MouseCursor::UpDownResizeCursor);
+}
+
+void PitchTrack::mouseWheelMove (const juce::MouseEvent& event, const juce::MouseWheelDetails& wheel)
+{
+    if (! event.mods.isCommandDown() && ! event.mods.isCtrlDown())
+    {
+        Component::mouseWheelMove (event, wheel);
+        return;
+    }
+
+    if (onZoomRequested == nullptr)
+        return;
+
+    const auto factor = 1.0f + wheel.deltaY * zoomPerWheelNotch;
+
+    onZoomRequested (event.mods.isShiftDown() ? juce::Point<float> { 1.0f, factor }
+                                              : juce::Point<float> { factor, 1.0f },
+                     event.position);
 }
 
 bool PitchTrack::keyPressed (const juce::KeyPress& key)
@@ -774,21 +1004,61 @@ void PitchTrack::paintNotes (juce::Graphics& graphics) const
             continue;
 
         const auto isSelected = index < selection.size() && selection[index] != 0;
-        const auto corner = std::min (2.0f, rowHeight * 0.4f);
+        const auto corner = std::min (2.5f, rowHeight * 0.4f);
 
-        graphics.setColour (isSelected ? Palette::accent.withAlpha (0.32f)
-                                       : Palette::noteBlock.withAlpha (0.9f));
+        graphics.setColour (isSelected ? Palette::accent.withAlpha (0.55f) : Palette::noteBlock);
         graphics.fillRoundedRectangle (bounds, corner);
 
-        graphics.setColour (isSelected ? Palette::accent : Palette::edge);
+        graphics.setColour (isSelected ? Palette::accent : Palette::accentDim);
         graphics.drawRoundedRectangle (bounds, corner, Metrics::hairline);
 
         if (note.depth < 1.0f)
         {
-            graphics.setColour (Palette::accent.withAlpha (1.0f - note.depth));
+            graphics.setColour (Palette::accent.withAlpha (1.0f - note.depth * 0.5f));
             graphics.fillRect (bounds.getX(), bounds.getCentreY() - 0.5f, bounds.getWidth(), 1.0f);
         }
     }
+}
+
+void PitchTrack::paintHandles (juce::Graphics& graphics) const
+{
+    const auto handled = getHandledNote();
+
+    if (handled < 0)
+        return;
+
+    const auto& note = edit.notes[static_cast<std::size_t> (handled)];
+
+    const auto draw = [&] (Handle which, const juce::String& glyph, bool isSet)
+    {
+        const auto bounds = getHandleBounds (note, which);
+
+        if (bounds.getBottom() < 0.0f || bounds.getY() > static_cast<float> (getHeight()))
+            return;
+
+        graphics.setColour (isSet ? Palette::accent : Palette::bar);
+        graphics.fillRoundedRectangle (bounds, 2.0f);
+
+        graphics.setColour (Palette::accent);
+        graphics.drawRoundedRectangle (bounds, 2.0f, Metrics::hairline);
+
+        graphics.setColour (isSet ? Palette::ground : Palette::text);
+        graphics.setFont (juce::Font { juce::FontOptions { handleHeight - 1.0f } });
+        graphics.drawText (glyph, bounds, juce::Justification::centred, false);
+    };
+
+    draw (Handle::tiltLeft, "/", note.tiltLeft != 0.0f);
+    draw (Handle::shape, "~", note.depth != 1.0f);
+    draw (Handle::tiltRight, "\\", note.tiltRight != 0.0f);
+}
+
+void PitchTrack::paintPlayhead (juce::Graphics& graphics) const
+{
+    if (playheadSeconds < 0.0)
+        return;
+
+    graphics.setColour (Palette::accent);
+    graphics.fillRect (getXForSeconds (playheadSeconds), 0.0f, 1.0f, static_cast<float> (getHeight()));
 }
 
 void PitchTrack::paintCurve (juce::Graphics& graphics,
@@ -840,8 +1110,19 @@ void PitchTrack::paint (juce::Graphics& graphics)
 
     if (conversion != nullptr)
     {
-        paintCurve (graphics, conversion->sourceFundamentalFrequencyHz, Palette::dimText, 1.0f);
-        paintCurve (graphics, conversion->fundamentalFrequencyHz, Palette::accent, 1.6f);
+        paintCurve (graphics, conversion->sourceFundamentalFrequencyHz, Palette::sungCurve, 1.0f);
+        paintCurve (graphics, conversion->fundamentalFrequencyHz, Palette::accent, 1.8f);
+    }
+
+    paintHandles (graphics);
+    paintPlayhead (graphics);
+
+    if (! band.isEmpty())
+    {
+        graphics.setColour (Palette::accent.withAlpha (0.15f));
+        graphics.fillRect (band);
+        graphics.setColour (Palette::accent);
+        graphics.drawRect (band, Metrics::hairline);
     }
 }
 

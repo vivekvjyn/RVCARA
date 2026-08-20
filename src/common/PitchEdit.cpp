@@ -56,6 +56,8 @@ std::uint64_t PitchEdit::getHash() const noexcept
         mix (std::bit_cast<std::uint32_t> (note.sungMidiNote));
         mix (std::bit_cast<std::uint32_t> (note.offsetSemitones));
         mix (std::bit_cast<std::uint32_t> (note.depth));
+        mix (std::bit_cast<std::uint32_t> (note.tiltLeft));
+        mix (std::bit_cast<std::uint32_t> (note.tiltRight));
         mix (note.isRest ? 1U : 0U);
     }
 
@@ -122,6 +124,8 @@ void applyPitchEdit (std::vector<float>& fundamentalFrequencyHz,
         const auto [first, last] = getFrameRange (numFrames, frameRate, firstFrame,
                                                   note.startSeconds, note.endSeconds);
 
+        const auto span = static_cast<float> (last - first);
+
         for (int frameIndex = first; frameIndex < last; ++frameIndex)
         {
             auto& frequencyHz = fundamentalFrequencyHz[static_cast<std::size_t> (frameIndex)];
@@ -129,8 +133,15 @@ void applyPitchEdit (std::vector<float>& fundamentalFrequencyHz,
             if (frequencyHz <= 0.0f)
                 continue;
 
+            const auto position = span > 1.0f ? static_cast<float> (frameIndex - first) / (span - 1.0f)
+                                              : 0.0f;
+
+            const auto tilt = position < 0.5f ? note.tiltLeft * (1.0f - 2.0f * position)
+                                              : note.tiltRight * (2.0f * position - 1.0f);
+
             const auto midiNote = static_cast<float> (hzToMidiNote (static_cast<double> (frequencyHz)));
-            const auto shaped = centre + note.offsetSemitones + (midiNote - centre) * note.depth;
+            const auto shaped = centre + note.offsetSemitones
+                              + (midiNote - centre) * note.depth + tilt;
 
             frequencyHz = static_cast<float> (midiNoteToHz (static_cast<double> (shaped)));
         }

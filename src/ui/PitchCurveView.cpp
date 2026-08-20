@@ -26,6 +26,23 @@ namespace
 
     constexpr int toolRadioGroup = 1;
 
+    constexpr float zoomPerWheelNotch = 0.3f;
+
+    /** @brief The scales snapping can land on: everything, then the two the ear expects. */
+    struct Scale
+    {
+        const char* name;
+        int degreeMask;
+    };
+
+    const Scale scales[] {
+        { "Chromatic", 0xfff },
+        { "Major", 0b101010110101 },
+        { "Minor", 0b010101101101 },
+    };
+
+    const char* pitchClassNames[] { "C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B" };
+
     double chooseRulerStep (float pixelsPerSecond)
     {
         for (const auto candidate : { 0.5, 1.0, 2.0, 5.0, 10.0, 30.0 })
@@ -81,7 +98,16 @@ PitchCurveView::PitchCurveView()
     addAction (undoButton, [this] { track.undo(); updateToolbar(); });
     addAction (redoButton, [this] { track.redo(); updateToolbar(); });
 
-    shapeSlider.setRange (0.0, 1.0);
+    scaleButton.onClick = [this] { showScaleMenu(); };
+    scaleButton.setTriggeredOnMouseDown (true);
+    addAndMakeVisible (scaleButton);
+
+    track.onZoomRequested = [this] (juce::Point<float> factor, juce::Point<float> anchor)
+    {
+        applyZoomAround (factor, anchor);
+    };
+
+    shapeSlider.setRange (0.0, 2.0);
     shapeSlider.setValue (1.0, juce::dontSendNotification);
     shapeSlider.setDoubleClickReturnValue (true, 1.0);
     shapeSlider.onDragEnd = [this] { applySelectionDepth(); };
@@ -138,6 +164,103 @@ void PitchCurveView::setNoteStatus (const juce::String& status)
 
     noteStatus = status;
     repaint();
+}
+
+void PitchCurveView::setPlayheadSeconds (double seconds)
+{
+    if (juce::approximatelyEqual (playheadSeconds, seconds))
+        return;
+
+    playheadSeconds = seconds;
+    track.setPlayheadSeconds (seconds);
+    repaint();
+}
+
+void PitchCurveView::showScaleMenu()
+{
+    juce::PopupMenu menu;
+    menu.setLookAndFeel (&getLookAndFeel());
+
+    menu.addItem (1, scales[0].name, true, scaleMode == 0);
+
+    for (int mode = 1; mode < static_cast<int> (std::size (scales)); ++mode)
+    {
+        juce::PopupMenu roots;
+
+        for (int root = 0; root < 12; ++root)
+            roots.addItem (mode * 12 + root + 2,
+                           juce::String (pitchClassNames[root]),
+                           true,
+                           scaleMode == mode && scaleRoot == root);
+
+        menu.addSubMenu (scales[static_cast<std::size_t> (mode)].name, roots);
+    }
+
+    menu.showMenuAsync (juce::PopupMenu::Options {}
+                            .withTargetComponent (scaleButton)
+                            .withMinimumWidth (scaleButton.getWidth())
+                            .withStandardItemHeight (24),
+                        [this] (int chosen)
+                        {
+                            if (chosen == 1)
+                                applyScale (0, 0);
+                            else if (chosen > 1)
+                                applyScale ((chosen - 2) % 12, (chosen - 2) / 12);
+                        });
+}
+
+void PitchCurveView::applyScale (int root, int mode)
+{
+    scaleRoot = root;
+    scaleMode = mode;
+
+    const auto& scale = scales[static_cast<std::size_t> (mode)];
+    track.setScale (root, scale.degreeMask);
+
+    scaleButton.setButtonText (mode == 0 ? juce::String (scale.name)
+                                         : juce::String (pitchClassNames[root]) + " " + scale.name);
+}
+
+void PitchCurveView::applyZoomAround (juce::Point<float> factor, juce::Point<float> anchor)
+{
+    const auto anchorSeconds = track.getSecondsForX (anchor.x);
+    const auto anchorNote = track.getMidiNoteForY (anchor.y);
+
+    const juce::Point<float> viewOffset { anchor.x - static_cast<float> (viewport.getViewPositionX()),
+                                          anchor.y - static_cast<float> (viewport.getViewPositionY()) };
+
+    horizontalScaler.setValue (static_cast<double> (track.getPixelsPerSecond() * factor.x),
+                               juce::dontSendNotification);
+    verticalScaler.setValue (static_cast<double> (track.getRowHeight() * factor.y),
+                             juce::dontSendNotification);
+    applyZoom();
+
+    viewport.setViewPosition (
+        factor.x != 1.0f ? juce::roundToInt (track.getXForSeconds (anchorSeconds) - viewOffset.x)
+                         : viewport.getViewPositionX(),
+        factor.y != 1.0f ? juce::roundToInt (track.getRowCentre (anchorNote) - viewOffset.y)
+                         : viewport.getViewPositionY());
+}
+
+void PitchCurveView::mouseWheelMove (const juce::MouseEvent& event, const juce::MouseWheelDetails& wheel)
+{
+    const auto factor = 1.0f + wheel.deltaY * zoomPerWheelNotch;
+    const auto position = event.getPosition();
+
+    if (keyboardBounds.contains (position))
+    {
+        applyZoomAround ({ 1.0f, factor },
+                         { 0.0f, static_cast<float> (position.y - viewport.getY()
+                                                     + viewport.getViewPositionY()) });
+        return;
+    }
+
+    if (rulerBounds.contains (position) || waveformBounds.contains (position))
+    {
+        applyZoomAround ({ factor, 1.0f },
+                         { static_cast<float> (position.x - viewport.getX()
+                                               + viewport.getViewPositionX()), 0.0f });
+    }
 }
 
 void PitchCurveView::chooseTool (PitchTrack::Tool tool)
@@ -245,7 +368,8 @@ void PitchCurveView::resized()
 {
     auto bounds = getLocalBounds().reduced (1);
 
-    auto toolbarRow = bounds.removeFromTop (toolbarHeight).reduced (Metrics::gap, 3);
+    toolbarBounds = bounds.removeFromTop (toolbarHeight);
+    auto toolbarRow = toolbarBounds.reduced (Metrics::gap, 3);
 
     const auto place = [&toolbarRow] (juce::Component& component, int width)
     {
@@ -264,6 +388,8 @@ void PitchCurveView::resized()
     toolbarRow.removeFromLeft (Metrics::gap);
     shapeLabelBounds = toolbarRow.removeFromLeft (44);
     place (shapeSlider, 96);
+    toolbarRow.removeFromLeft (Metrics::gap);
+    place (scaleButton, scaleButtonWidth);
 
     noteStatusBounds = toolbarRow;
 
@@ -274,9 +400,9 @@ void PitchCurveView::resized()
     horizontalScaler.setBounds (scalerRow.removeFromRight (88).reduced (4, 3));
     timeLabelBounds = scalerRow.removeFromRight (38);
 
-    bounds.removeFromTop (rulerHeight);
-    bounds.removeFromBottom (waveformHeight);
-    bounds.removeFromLeft (keyboardWidth);
+    rulerBounds = bounds.removeFromTop (rulerHeight).withTrimmedLeft (keyboardWidth);
+    waveformBounds = bounds.removeFromBottom (waveformHeight).withTrimmedLeft (keyboardWidth);
+    keyboardBounds = bounds.removeFromLeft (keyboardWidth);
 
     viewport.setBounds (bounds);
     applyZoom();
@@ -379,6 +505,18 @@ void PitchCurveView::paintRuler (juce::Graphics& graphics, juce::Rectangle<int> 
                        static_cast<float> (bounds.getBottom()) - Metrics::hairline,
                        static_cast<float> (bounds.getWidth()),
                        Metrics::hairline);
+
+    if (playheadSeconds >= 0.0)
+    {
+        const auto x = originX + track.getXForSeconds (playheadSeconds);
+
+        if (x >= static_cast<float> (bounds.getX()) && x <= static_cast<float> (bounds.getRight()))
+        {
+            graphics.setColour (Palette::accent);
+            graphics.fillRect (x - 1.0f, static_cast<float> (bounds.getY()), 2.0f,
+                               static_cast<float> (bounds.getHeight()));
+        }
+    }
 }
 
 void PitchCurveView::paintWaveform (juce::Graphics& graphics, juce::Rectangle<int> bounds) const
@@ -437,16 +575,10 @@ void PitchCurveView::paint (juce::Graphics& graphics)
 {
     graphics.fillAll (Palette::well);
 
-    auto bounds = getLocalBounds().reduced (1);
-    paintToolbar (graphics, bounds.removeFromTop (toolbarHeight));
-    bounds.removeFromBottom (scalerHeight);
-
-    const auto rulerBounds = bounds.removeFromTop (rulerHeight);
-    const auto waveformBounds = bounds.removeFromBottom (waveformHeight);
-
-    paintKeyboard (graphics, bounds.removeFromLeft (keyboardWidth));
-    paintRuler (graphics, rulerBounds.withTrimmedLeft (keyboardWidth));
-    paintWaveform (graphics, waveformBounds.withTrimmedLeft (keyboardWidth));
+    paintToolbar (graphics, toolbarBounds);
+    paintKeyboard (graphics, keyboardBounds);
+    paintRuler (graphics, rulerBounds);
+    paintWaveform (graphics, waveformBounds);
 }
 
 void PitchCurveView::paintOverChildren (juce::Graphics& graphics)

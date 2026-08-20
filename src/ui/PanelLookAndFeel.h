@@ -10,23 +10,32 @@ class PanelLookAndFeel final : public juce::LookAndFeel_V4
 public:
     PanelLookAndFeel();
 
-    /** @brief Colours named for the role they play, never for the colour they are. */
+    /** @brief Colours named for the role they play, never for the colour they are.
+
+        The neutrals are warm rather than blue, so the accent reads as the one saturated thing
+        on the panel. Alert is amber rather than red precisely because the accent is red: a
+        failure has to be distinguishable from a selection at a glance.
+    */
     struct Palette
     {
-        inline static const juce::Colour ground { 0xff12151a };
-        inline static const juce::Colour bar { 0xff1a1e26 };
-        inline static const juce::Colour well { 0xff0d1015 };
-        inline static const juce::Colour edge { 0xff2a3140 };
-        inline static const juce::Colour rule { 0xff1b2028 };
-        inline static const juce::Colour text { 0xffe6eaf1 };
-        inline static const juce::Colour dimText { 0xff7d8694 };
-        inline static const juce::Colour accent { 0xff43c6f0 };
-        inline static const juce::Colour noteBlock { 0xff1d3a48 };
-        inline static const juce::Colour silhouette { 0xff26313d };
-        inline static const juce::Colour whiteKey { 0xffccd3dd };
-        inline static const juce::Colour blackKey { 0xff1a1e26 };
-        inline static const juce::Colour blackKeyRow { 0xff0a0d11 };
-        inline static const juce::Colour alert { 0xffe4674f };
+        inline static const juce::Colour ground { 0xff17100f };
+        inline static const juce::Colour bar { 0xff211714 };
+        inline static const juce::Colour well { 0xff0f0a09 };
+        inline static const juce::Colour edge { 0xff402c28 };
+        inline static const juce::Colour rule { 0xff281c19 };
+        inline static const juce::Colour text { 0xfff4ebec };
+        inline static const juce::Colour dimText { 0xff9c8781 };
+        inline static const juce::Colour accent { 0xffff4d5e };
+        inline static const juce::Colour accentDim { 0xffb03040 };
+        inline static const juce::Colour noteBlock { 0xff4e2020 };
+        inline static const juce::Colour silhouette { 0xff3c2622 };
+        inline static const juce::Colour whiteKey { 0xffe4d6d2 };
+        inline static const juce::Colour blackKey { 0xff211714 };
+        inline static const juce::Colour blackKeyRow { 0xff0b0706 };
+        inline static const juce::Colour alert { 0xffffb454 };
+
+        /** @brief The take as it was sung, kept neutral so the edit is the coloured thing. */
+        inline static const juce::Colour sungCurve { 0xff8d7b76 };
     };
 
     /** @brief The four type sizes, in points. */

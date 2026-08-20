@@ -114,12 +114,12 @@ public:
     static void readAndDiscard (juce::InputStream& stream);
 
 private:
-    /** @brief Version one held the settings alone; version two adds the notes after them. */
-    static constexpr int archiveVersion = 2;
+    /** @brief One held the settings alone, two added the notes, three their tilts. */
+    static constexpr int archiveVersion = 3;
 
     static void writeNotes (juce::OutputStream& stream, const PitchEdit& edit);
 
-    static PitchEdit readNotes (juce::InputStream& stream);
+    static PitchEdit readNotes (juce::InputStream& stream, int version);
 
     ConversionSettings settings;
     juce::String voiceName;
