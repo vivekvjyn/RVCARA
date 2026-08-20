@@ -81,6 +81,9 @@ public:
     /** @brief Shows where the host's transport is, or hides the line when given a time before zero. */
     void setPlayheadSeconds (double seconds);
 
+    /** @brief Whether dragging a note lands it on a degree of the scale or moves it freely. */
+    void setSnapWhileDragging (bool shouldSnap) noexcept { snapWhileDragging = shouldSnap; }
+
     /** @brief Rounds a note onto the nearest degree of the current scale. */
     [[nodiscard]] float snapToScale (float midiNote) const;
 
@@ -227,6 +230,7 @@ private:
 
     int scaleRoot { 0 };
     int scaleMask { 0xfff };
+    bool snapWhileDragging { true };
 
     double playheadSeconds { -1.0 };
 

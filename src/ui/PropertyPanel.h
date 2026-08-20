@@ -8,8 +8,7 @@
 
 namespace rvcara
 {
-/** @brief The column of cards down the right: the voice, the selected notes, and what the
-           plug-in is doing.
+/** @brief The column of cards down the right: how pitch is snapped, and which voice is singing.
 
     Everything on it is set from outside; the panel owns its controls but none of its state.
 */
@@ -18,9 +17,14 @@ class PropertyPanel final : public juce::Component
 public:
     PropertyPanel();
 
-    /** @brief Everything the panel reports, gathered in one place so it updates in one call. */
+    /** @brief Everything the panel reports, gathered so it updates in one call. */
     struct State
     {
+        bool isChromatic { true };
+        int scaleRoot { 0 };
+        int scaleMode { 1 };
+        bool snapWhileDragging { true };
+
         juce::String voiceName { "No model" };
         juce::String voiceDetail;
 
@@ -31,40 +35,31 @@ public:
         float progress { 0.0f };
         bool isBusy { false };
         bool isAlert { false };
-
         bool canEdit { false };
-        int numSelected { 0 };
-        float shape { 1.0f };
-        juce::String scaleName { "Chromatic" };
     };
 
     void setState (const State& state);
 
     std::function<void()> onVoiceClicked;
+    std::function<void (bool)> onChromaticChanged;
     std::function<void()> onScaleClicked;
-    std::function<void (float)> onShapeChanged;
-    std::function<void()> onSnapClicked;
-    std::function<void()> onResetClicked;
+    std::function<void (bool)> onSnapWhileDraggingChanged;
 
     void paint (juce::Graphics& graphics) override;
     void resized() override;
 
 private:
-    static constexpr int voiceCardHeight = 92;
-    static constexpr int noteCardHeight = 150;
-    static constexpr int statusCardHeight = 116;
+    static constexpr int pitchCardHeight = 150;
+    static constexpr int voiceCardHeight = 168;
 
-    void applyShape();
-
+    juce::TextButton chromaticButton { "Chromatic" };
+    juce::TextButton scaleButton { "Scale" };
+    juce::TextButton rootButton { "C Major" };
+    juce::ToggleButton dragSnapButton { "Snap while dragging" };
     juce::TextButton voiceButton { "No model" };
-    juce::TextButton scaleButton { "Chromatic" };
-    juce::TextButton snapButton { "Snap" };
-    juce::TextButton resetButton { "Reset" };
-    juce::Slider shapeSlider { juce::Slider::LinearHorizontal, juce::Slider::NoTextBox };
 
+    juce::Rectangle<int> pitchCard;
     juce::Rectangle<int> voiceCard;
-    juce::Rectangle<int> noteCard;
-    juce::Rectangle<int> statusCard;
 
     State current;
 

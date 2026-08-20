@@ -94,6 +94,15 @@ PitchCurveView::PitchCurveView()
 
     fitButton.onClick = [this] { zoomToFit(); };
     addAndMakeVisible (fitButton);
+
+    overviewButton.setClickingTogglesState (true);
+    overviewButton.setToggleState (true, juce::dontSendNotification);
+    overviewButton.onClick = [this]
+    {
+        if (onOverviewToggled != nullptr)
+            onOverviewToggled (overviewButton.getToggleState());
+    };
+    addAndMakeVisible (overviewButton);
 }
 
 void PitchCurveView::setConversion (ConversionPointer newConversion)
@@ -135,6 +144,11 @@ void PitchCurveView::setPlayheadSeconds (double seconds)
     playheadSeconds = seconds;
     track.setPlayheadSeconds (seconds);
     repaint();
+}
+
+void PitchCurveView::setOverviewShown (bool isShown)
+{
+    overviewButton.setToggleState (isShown, juce::dontSendNotification);
 }
 
 void PitchCurveView::setCaption (const juce::String& newCaption, bool isAlert)
@@ -222,20 +236,31 @@ void PitchCurveView::resized()
 {
     auto bounds = getLocalBounds();
 
-    auto bottomRail = bounds.removeFromBottom (zoomRailHeight);
-    auto rightRail = bounds.removeFromRight (zoomRailWidth);
-
     rulerBounds = bounds.removeFromTop (rulerHeight).withTrimmedLeft (gutterWidth);
     gutterBounds = bounds.removeFromLeft (gutterWidth);
 
     viewport.setBounds (bounds);
 
-    rightRail.removeFromTop (rulerHeight);
-    verticalZoom.setBounds (rightRail.withSizeKeepingCentre (
-        rightRail.getWidth(), std::min (rightRail.getHeight() - Metrics::gap * 2, 150)));
+    // The zoom controls float over the grid's bottom right rather than taking a lane from it.
+    auto corner = bounds.reduced (floatingInset);
+    corner.removeFromBottom (scrollBarThickness);
 
-    fitButton.setBounds (bottomRail.removeFromLeft (gutterWidth).reduced (3, 3));
-    horizontalZoom.setBounds (bottomRail.reduced (Metrics::gap, 7));
+    auto row = corner.removeFromBottom (floatingButtonSize)
+                     .removeFromRight (floatingButtonSize * 2 + zoomSliderLength + floatingInset * 2
+                                       + scrollBarThickness);
+    row.removeFromRight (scrollBarThickness);
+
+    fitButton.setBounds (row.removeFromLeft (floatingButtonSize));
+    row.removeFromLeft (floatingInset);
+    horizontalZoom.setBounds (row.removeFromLeft (zoomSliderLength));
+    row.removeFromLeft (floatingInset);
+    overviewButton.setBounds (row.removeFromLeft (floatingButtonSize));
+
+    verticalZoom.setBounds (bounds.getRight() - floatingInset - zoomSliderThickness
+                                - scrollBarThickness,
+                            bounds.getY() + floatingInset,
+                            zoomSliderThickness,
+                            zoomSliderLength);
 
     applyZoom();
 }

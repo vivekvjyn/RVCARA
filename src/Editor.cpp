@@ -18,8 +18,14 @@ namespace
     constexpr int maximumHeight = 1600;
 
     constexpr int refreshHz = 15;
-    constexpr int toolButtonWidth = 80;
-    constexpr int historyButtonWidth = 68;
+    /** @brief The toolbar's geometry, taken from PitchNet's so the panel reads the same. */
+    constexpr int toolSlotSize = 24;
+    constexpr int toolGap = 6;
+    constexpr int toolPad = 15;
+    constexpr int toolGroupHeight = 38;
+    constexpr int rightButtonSize = 30;
+    constexpr int rightSectionWidth = 250;
+    constexpr int scaleButtonWidth = 96;
     constexpr int toolRadioGroup = 1;
     constexpr int rescanItemId = 10000;
 
@@ -64,7 +70,7 @@ Editor::Editor (Processor& processorToUse)
 {
     setLookAndFeel (&lookAndFeel);
 
-    const auto addTool = [this] (juce::TextButton& button, PitchTrack::Tool tool)
+    const auto addTool = [this] (IconButton& button, PitchTrack::Tool tool)
     {
         button.setClickingTogglesState (true);
         button.setRadioGroupId (toolRadioGroup);
@@ -78,24 +84,34 @@ Editor::Editor (Processor& processorToUse)
 
     selectButton.setToggleState (true, juce::dontSendNotification);
 
+    snapButton.onClick = [this] { pitchCurveView.getTrack().snapSelection(); refresh(); };
     undoButton.onClick = [this] { pitchCurveView.getTrack().undo(); refresh(); };
     redoButton.onClick = [this] { pitchCurveView.getTrack().redo(); refresh(); };
-    addAndMakeVisible (undoButton);
-    addAndMakeVisible (redoButton);
+
+    panelButton.setClickingTogglesState (true);
+    panelButton.setToggleState (true, juce::dontSendNotification);
+    panelButton.onClick = [this] { setPanelShown (panelButton.getToggleState()); };
+
+    for (auto* button : { &snapButton, &undoButton, &redoButton, &panelButton })
+        addAndMakeVisible (*button);
+
+    scaleButton.setTriggeredOnMouseDown (true);
+    scaleButton.onClick = [this] { showScaleMenu(); };
+    addAndMakeVisible (scaleButton);
 
     pitchCurveView.onEditChanged = [this] (const PitchEdit& edit) { applyPitchEdit (edit); };
     pitchCurveView.onSelectionChanged = [this] { refresh(); };
+    pitchCurveView.onOverviewToggled = [this] (bool isShown) { setOverviewShown (isShown); };
     addAndMakeVisible (pitchCurveView);
 
     propertyPanel.onVoiceClicked = [this] { showVoiceMenu(); };
     propertyPanel.onScaleClicked = [this] { showScaleMenu(); };
-    propertyPanel.onShapeChanged = [this] (float shape)
+    propertyPanel.onChromaticChanged = [this] (bool chromatic) { applyChromatic (chromatic); };
+    propertyPanel.onSnapWhileDraggingChanged = [this] (bool snap)
     {
-        pitchCurveView.getTrack().setSelectionDepth (shape);
-        refresh();
+        snapWhileDragging = snap;
+        pitchCurveView.getTrack().setSnapWhileDragging (snap);
     };
-    propertyPanel.onSnapClicked = [this] { pitchCurveView.getTrack().snapSelection(); refresh(); };
-    propertyPanel.onResetClicked = [this] { pitchCurveView.getTrack().resetSelection(); refresh(); };
     addAndMakeVisible (propertyPanel);
 
     overviewStrip.onScrubbed = [this] (double) {};
@@ -207,7 +223,7 @@ void Editor::showScaleMenu()
     juce::PopupMenu menu;
     menu.setLookAndFeel (&lookAndFeel);
 
-    menu.addItem (1, scales[0].name, true, scaleMode == 0);
+    menu.addItem (1, scales[0].name, true, isChromatic);
 
     for (int mode = 1; mode < static_cast<int> (std::size (scales)); ++mode)
     {
@@ -223,12 +239,12 @@ void Editor::showScaleMenu()
     }
 
     menu.showMenuAsync (juce::PopupMenu::Options {}
-                            .withTargetComponent (propertyPanel)
+                            .withTargetComponent (scaleButton)
                             .withStandardItemHeight (28),
                         [this] (int chosen)
                         {
                             if (chosen == 1)
-                                applyScale (0, 0);
+                                applyChromatic (true);
                             else if (chosen > 1)
                                 applyScale ((chosen - 2) % 12, (chosen - 2) / 12);
                         });
@@ -238,9 +254,35 @@ void Editor::applyScale (int root, int mode)
 {
     scaleRoot = root;
     scaleMode = mode;
+    isChromatic = false;
 
     pitchCurveView.getTrack().setScale (root, scales[static_cast<std::size_t> (mode)].degreeMask);
     refresh();
+}
+
+void Editor::applyChromatic (bool shouldBeChromatic)
+{
+    isChromatic = shouldBeChromatic;
+
+    pitchCurveView.getTrack().setScale (
+        scaleRoot,
+        shouldBeChromatic ? 0xfff : scales[static_cast<std::size_t> (scaleMode)].degreeMask);
+
+    refresh();
+}
+
+void Editor::setPanelShown (bool isShown)
+{
+    isPanelShown = isShown;
+    propertyPanel.setVisible (isShown);
+    resized();
+}
+
+void Editor::setOverviewShown (bool isShown)
+{
+    isOverviewShown = isShown;
+    overviewStrip.setVisible (isShown);
+    resized();
 }
 
 void Editor::applyVoice (const juce::String& name)
@@ -539,13 +581,25 @@ void Editor::refresh()
     const auto hasNotes = ! editorTrack.getPitchEdit().notes.empty();
     const auto canEdit = shownModification != nullptr && hasNotes;
 
-    for (auto* button : { &selectButton, &splitButton, &glueButton })
+    for (auto* button : { &selectButton, &splitButton, &glueButton, &snapButton })
         button->setEnabled (canEdit);
 
     undoButton.setEnabled (canEdit && editorTrack.canUndo());
     redoButton.setEnabled (canEdit && editorTrack.canRedo());
 
+    const auto scaleName = isChromatic
+                             ? juce::String (scales[0].name)
+                             : juce::String (pitchClassNames[scaleRoot]) + " "
+                                   + scales[static_cast<std::size_t> (scaleMode)].name;
+
+    scaleButton.setButtonText (scaleName);
+    scaleButton.setEnabled (canEdit);
+
     PropertyPanel::State state;
+    state.isChromatic = isChromatic;
+    state.scaleRoot = scaleRoot;
+    state.scaleMode = scaleMode;
+    state.snapWhileDragging = snapWhileDragging;
     state.voiceName = describeLoadedVoice();
     state.voiceDetail = describeVoiceDetail();
     state.status = report.status;
@@ -556,12 +610,6 @@ void Editor::refresh()
     state.isBusy = report.isBusy;
     state.isAlert = report.isAlert;
     state.canEdit = canEdit;
-    state.numSelected = editorTrack.getNumSelected();
-    state.shape = editorTrack.getSelectionDepth();
-    state.scaleName = scaleMode == 0
-                        ? juce::String (scales[0].name)
-                        : juce::String (pitchClassNames[scaleRoot]) + " "
-                              + scales[static_cast<std::size_t> (scaleMode)].name;
 
     propertyPanel.setState (state);
     repaint();
@@ -616,26 +664,51 @@ void Editor::resized()
     headerBounds = bounds.removeFromTop (Metrics::headerHeight);
 
     {
-        auto row = headerBounds.reduced (Metrics::margin, 0);
-        const auto capsuleWidth = toolButtonWidth * 3 + 8;
+        auto row = headerBounds.reduced (12, 0);
+        const auto contentHeight = row.getHeight() - 2;
 
-        toolCapsule = row.withSizeKeepingCentre (capsuleWidth, Metrics::controlHeight + 8);
+        auto rightSection = row.removeFromRight (rightSectionWidth);
 
-        auto tools = toolCapsule.reduced (4, 4);
-        selectButton.setBounds (tools.removeFromLeft (toolButtonWidth));
-        splitButton.setBounds (tools.removeFromLeft (toolButtonWidth));
-        glueButton.setBounds (tools.removeFromLeft (toolButtonWidth));
+        const auto placeRight = [&rightSection, contentHeight] (juce::Component& button, int spacing)
+        {
+            auto area = rightSection.removeFromRight (rightButtonSize + spacing);
+            button.setBounds (area.getRight() - rightButtonSize,
+                              1 + (contentHeight - rightButtonSize) / 2,
+                              rightButtonSize, rightButtonSize);
+        };
 
-        auto history = row.removeFromRight (historyButtonWidth * 2 + Metrics::gap)
-                          .withSizeKeepingCentre (historyButtonWidth * 2 + Metrics::gap,
-                                                  Metrics::controlHeight);
-        undoButton.setBounds (history.removeFromLeft (historyButtonWidth));
-        history.removeFromLeft (Metrics::gap);
-        redoButton.setBounds (history);
+        placeRight (panelButton, 6);
+        placeRight (redoButton, 2);
+        placeRight (undoButton, 2);
+        placeRight (snapButton, 2);
+
+        scaleButton.setBounds (snapButton.getX() - 11 - scaleButtonWidth,
+                               1 + (contentHeight - 26) / 2,
+                               scaleButtonWidth, 26);
+
+        const auto groupWidth = toolSlotSize * 3 + toolGap * 2 + toolPad * 2;
+
+        toolCapsule = { headerBounds.getCentreX() - groupWidth / 2,
+                        1 + (contentHeight - toolGroupHeight) / 2,
+                        groupWidth,
+                        toolGroupHeight };
+
+        auto tools = toolCapsule.reduced (toolPad, 0);
+
+        for (auto* button : { &selectButton, &splitButton, &glueButton })
+        {
+            button->setBounds (tools.removeFromLeft (toolSlotSize)
+                                    .withSizeKeepingCentre (toolSlotSize, toolSlotSize));
+            tools.removeFromLeft (toolGap);
+        }
     }
 
-    propertyPanel.setBounds (bounds.removeFromRight (Metrics::panelWidth));
-    overviewStrip.setBounds (bounds.removeFromBottom (Metrics::overviewHeight));
+    if (isPanelShown)
+        propertyPanel.setBounds (bounds.removeFromRight (Metrics::panelWidth));
+
+    if (isOverviewShown)
+        overviewStrip.setBounds (bounds.removeFromBottom (Metrics::overviewHeight));
+
     pitchCurveView.setBounds (bounds);
 }
 

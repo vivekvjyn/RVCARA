@@ -37,7 +37,7 @@ and includes are path-qualified so a file's dependencies name their layer.
 | `src/model/` | rvcara::VoiceModel, rvcara::ConversionEngine, rvcara::NoteSegmenter, rvcara::VoiceLoader, sessions, manifest |
 | `src/ara/` | rvcara::DocumentController, rvcara::PlaybackRenderer, rvcara::ConversionModification |
 | `src/insert/` | rvcara::InsertConverter |
-| `src/ui/` | rvcara::PanelLookAndFeel, rvcara::PitchCurveView, rvcara::PitchTrack, rvcara::PropertyPanel, rvcara::OverviewStrip |
+| `src/ui/` | rvcara::PanelLookAndFeel, rvcara::IconButton, rvcara::PitchCurveView, rvcara::PitchTrack, rvcara::PropertyPanel, rvcara::OverviewStrip |
 
 `dsp/`, `common/` and `model/` know nothing about ARA or plug-in formats, which is why the
 tests link them directly without instantiating a plug-in. Nor does `ui/`: what it draws is a
@@ -170,31 +170,38 @@ rather than its mean, so a slide into it does not drag the answer along.
 
 @section panel The panel
 
-A header carrying the wordmark, the tools and the history; the piano roll and its property
-panel below that; and the take at a glance along the bottom.
+The window is laid out the way PitchNet's is, because that is the layout a pitch editor wants:
+a toolbar across the top, the piano roll under it with its property cards down the right, and
+the take at a glance along the bottom.
 
-The roll is laid out as a piano roll. A column of note names is pinned to the left and a time
-ruler across the top, and between them the grid scrolls on both axes with one row per semitone
-from C2 to C6. Each note is drawn as a body whose thickness at any moment is how loud the voice
-was there, on the row the note will be heard on, shaded from its middle outward and coloured by
-how far it sits from the nearest degree of the chosen scale. The take is drawn behind the notes
-as a silhouette following the melody it was sung at, and the melody the voice actually sang is
-drawn over the top. Under the roll the whole take is shown at a glance, a mark per note, with a
-box around the stretch the roll is showing.
+The toolbar carries the wordmark on the left, the edit tools centred in a capsule, and the rest
+on the right: the scale, snap, undo, redo, and the switch that hides the property cards. All of
+them are drawn icons rather than words, so they stay legible at the size they are.
 
-Dragging a body moves the note; without shift held it lands on the nearest degree of the chosen
-scale, with shift it moves freely. Dragging where two bodies meet moves the boundary between
-them, and dragging empty grid draws a band that selects what it touches. Shift or command adds
-to a selection, and a tool given nothing selected acts on every note. Split cuts a note where it
-is clicked and Glue joins a note to the one after it. On the panel, Shape says how much of the
-sung contour survives, the scale button chooses what "nearest" means, Snap puts the selection on
-the nearest degrees and Reset puts it back the way it was sung. Undo and redo cover every
-gesture, and the arrow keys nudge by a semitone, or by a tenth of one with shift held.
+The roll has a column of note names pinned to its left and a time ruler across its top, and
+between them the grid scrolls on both axes with one row per semitone from C2 to C6. Each note is
+drawn as a body whose thickness at any moment is how loud the voice was there, on the row the
+note will be heard on, shaded from its middle outward and coloured by how far it sits from the
+nearest degree of the chosen scale. The take is drawn behind the notes as a silhouette following
+the melody it was sung at, and the melody the voice actually sang is drawn over the top. The
+zoom controls float over the grid's bottom corner rather than taking a lane from it. Under the
+roll the whole take is shown at a glance, a mark per note, with a box around the stretch the roll
+is showing.
+
+Dragging a body moves the note; it lands on the nearest degree of the chosen scale unless that
+is switched off, and shift inverts whichever way it is set. Dragging where two bodies meet moves
+the boundary between them, and dragging empty grid draws a band that selects what it touches.
+Shift or command adds to a selection, and a tool given nothing selected acts on every note.
+Split cuts a note where it is clicked and Glue joins a note to the one after it. Snap puts the
+selection on the nearest degrees. Undo and redo cover every gesture, the arrow keys nudge by a
+semitone or by a tenth of one with shift held, and delete puts the selection back the way it was
+sung.
 
 A note selected on its own carries three controls above it, the way PitchNet's do. The outer two
 tilt the note from its edges toward its middle, which is how a scoop into a note or a fall out of
-it is put there or taken away; the middle one is the same shaping the Shape slider does, dragged
-in place. All three are held rather than clicked, and all three are undoable.
+it is put there or taken away; the middle one says how much of the sung contour survives. All
+three are held rather than clicked, and all three are undoable. There is no panel of sliders
+duplicating them: a note is edited on the note.
 
 The wheel scrolls the grid, and zooms when it is over the lane that labels the axis: over the
 note names it zooms the pitch, over the ruler it zooms the time, and in both cases the point

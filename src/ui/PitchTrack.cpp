@@ -780,7 +780,7 @@ void PitchTrack::mouseDrag (const juce::MouseEvent& event)
 
     auto delta = getMidiNoteForY (event.position.y) - dragStartMidiNote;
 
-    if (! event.mods.isShiftDown())
+    if (snapWhileDragging != event.mods.isShiftDown())
     {
         const auto& primary = edit.notes[static_cast<std::size_t> (draggedNote)];
         const auto moving = std::find (dragNotes.begin(), dragNotes.end(), draggedNote);

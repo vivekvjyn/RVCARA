@@ -1,5 +1,6 @@
 #pragma once
 
+#include "ui/IconButton.h"
 #include "ui/PitchTrack.h"
 
 #include <juce_gui_basics/juce_gui_basics.h>
@@ -50,6 +51,11 @@ public:
     /** @brief Fits the whole take across the roll and centres it on the sung range. */
     void zoomToFit();
 
+    /** @brief Whether the take at a glance is shown under the roll. */
+    std::function<void (bool)> onOverviewToggled;
+
+    void setOverviewShown (bool isShown);
+
     void paint (juce::Graphics& graphics) override;
     void paintOverChildren (juce::Graphics& graphics) override;
     void resized() override;
@@ -70,9 +76,13 @@ private:
 
     static constexpr int gutterWidth = 54;
     static constexpr int rulerHeight = 26;
-    static constexpr int zoomRailWidth = 30;
-    static constexpr int zoomRailHeight = 26;
     static constexpr int scrollBarThickness = 12;
+
+    /** @brief The zoom controls float over the grid's corner rather than taking a lane. */
+    static constexpr int zoomSliderLength = 132;
+    static constexpr int zoomSliderThickness = 20;
+    static constexpr int floatingButtonSize = 26;
+    static constexpr int floatingInset = 8;
 
     void applyZoom();
 
@@ -93,7 +103,8 @@ private:
 
     juce::Slider verticalZoom { juce::Slider::LinearVertical, juce::Slider::NoTextBox };
     juce::Slider horizontalZoom { juce::Slider::LinearHorizontal, juce::Slider::NoTextBox };
-    juce::TextButton fitButton { "Fit" };
+    IconButton fitButton { IconButton::Icon::fit, "Fit" };
+    IconButton overviewButton { IconButton::Icon::overview, "Overview" };
 
     ConversionPointer conversion;
 

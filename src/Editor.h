@@ -3,6 +3,7 @@
 #include "Processor.h"
 
 #include "ara/DocumentController.h"
+#include "ui/IconButton.h"
 #include "ui/OverviewStrip.h"
 #include "ui/PanelLookAndFeel.h"
 #include "ui/PitchCurveView.h"
@@ -63,7 +64,10 @@ private:
     void showScaleMenu();
     void applyVoice (const juce::String& name);
     void applyScale (int root, int mode);
+    void applyChromatic (bool isChromatic);
     void chooseTool (PitchTrack::Tool tool);
+    void setPanelShown (bool isShown);
+    void setOverviewShown (bool isShown);
 
     void paintHeader (juce::Graphics& graphics, juce::Rectangle<int> bounds) const;
 
@@ -71,11 +75,14 @@ private:
 
     PanelLookAndFeel lookAndFeel;
 
-    juce::TextButton selectButton { "Select" };
-    juce::TextButton splitButton { "Split" };
-    juce::TextButton glueButton { "Glue" };
-    juce::TextButton undoButton { "Undo" };
-    juce::TextButton redoButton { "Redo" };
+    IconButton selectButton { IconButton::Icon::select, "Select" };
+    IconButton splitButton { IconButton::Icon::split, "Split" };
+    IconButton glueButton { IconButton::Icon::glue, "Glue" };
+    IconButton snapButton { IconButton::Icon::magnet, "Snap to scale" };
+    IconButton undoButton { IconButton::Icon::undo, "Undo" };
+    IconButton redoButton { IconButton::Icon::redo, "Redo" };
+    IconButton panelButton { IconButton::Icon::panel, "Parameters" };
+    juce::TextButton scaleButton { "Chromatic" };
 
     PitchCurveView pitchCurveView;
     PropertyPanel propertyPanel;
@@ -87,7 +94,11 @@ private:
     juce::Rectangle<int> toolCapsule;
 
     int scaleRoot { 0 };
-    int scaleMode { 0 };
+    int scaleMode { 1 };
+    bool isChromatic { true };
+    bool snapWhileDragging { true };
+    bool isPanelShown { true };
+    bool isOverviewShown { true };
 
     /** @brief The region the editor is showing, so an edit lands on what the user was looking at. */
     ConversionModification* shownModification { nullptr };
