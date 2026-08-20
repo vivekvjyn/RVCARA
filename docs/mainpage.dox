@@ -32,15 +32,17 @@ and includes are path-qualified so a file's dependencies name their layer.
 | Directory | Contents |
 | --- | --- |
 | `src/` | rvcara::Processor, rvcara::Editor |
-| `src/common/` | rvcara::ConversionSettings, rvcara::PitchEdit, rvcara::BinaryMatrix |
+| `src/common/` | rvcara::ConversionSettings, rvcara::ConversionResult, rvcara::PitchEdit, rvcara::BinaryMatrix |
 | `src/dsp/` | rvcara::SincResampler, rvcara::ZeroPhaseFilter, rvcara::MelSpectrogram, pitch maths |
 | `src/model/` | rvcara::VoiceModel, rvcara::ConversionEngine, rvcara::NoteSegmenter, rvcara::VoiceLoader, sessions, manifest |
 | `src/ara/` | rvcara::DocumentController, rvcara::PlaybackRenderer, rvcara::ConversionModification |
 | `src/insert/` | rvcara::InsertConverter |
-| `src/ui/` | rvcara::PanelLookAndFeel, rvcara::PitchCurveView, rvcara::PitchTrack |
+| `src/ui/` | rvcara::PanelLookAndFeel, rvcara::PitchCurveView, rvcara::PitchTrack, rvcara::PropertyPanel, rvcara::OverviewStrip |
 
 `dsp/`, `common/` and `model/` know nothing about ARA or plug-in formats, which is why the
-tests link them directly without instantiating a plug-in.
+tests link them directly without instantiating a plug-in. Nor does `ui/`: what it draws is a
+rvcara::ConversionResult and a rvcara::PitchEdit, both of which live in `common/`, so the roll
+can be built and rendered without a host.
 
 @section building Building
 
@@ -168,43 +170,40 @@ rather than its mean, so a slide into it does not drag the answer along.
 
 @section panel The panel
 
-A header carrying the model selector, the pitch editor, and a footer reporting state. The
-selector is the only control that changes what is rendered; the two scalers beside it scale
-the view, not the audio.
+A header carrying the wordmark, the tools and the history; the piano roll and its property
+panel below that; and the take at a glance along the bottom.
 
-The editor is laid out as a piano roll. A toolbar runs across the top, a keyboard column is
-pinned to the left, a time ruler under the toolbar, and a waveform lane along the bottom;
-between them the note grid scrolls on both axes, with one row per semitone from C2 to C6. Each
-note becomes a block on the row it will be heard on, the melody the voice sang is drawn through
-the blocks and the melody the take was sung at behind it, so vibrato, scooping and a note that
-landed a semitone out are all visible against the row it should have sat on. The converted
-waveform runs along the middle C line behind everything. The keyboard follows the vertical
-scroll and the ruler and waveform the horizontal one, so each stays pinned to the axis it
-labels. Opening a conversion centres the view on the sung range.
+The roll is laid out as a piano roll. A column of note names is pinned to the left and a time
+ruler across the top, and between them the grid scrolls on both axes with one row per semitone
+from C2 to C6. Each note is drawn as a body whose thickness at any moment is how loud the voice
+was there, on the row the note will be heard on, shaded from its middle outward and coloured by
+how far it sits from the nearest degree of the chosen scale. The take is drawn behind the notes
+as a silhouette following the melody it was sung at, and the melody the voice actually sang is
+drawn over the top. Under the roll the whole take is shown at a glance, a mark per note, with a
+box around the stretch the roll is showing.
 
-Dragging a block moves the note; without shift held it lands on the nearest degree of the
-chosen scale, with shift it moves freely. Dragging where two blocks meet moves the boundary
-between them, and dragging empty grid draws a band that selects what it touches. Shift or
-command adds to a selection, and a tool given nothing selected acts on every note. Split cuts a
-note where it is clicked and Glue joins a note to the one after it. Snap puts the selection on
-the nearest degrees, Reset puts it back the way it was sung, and the scale button chooses what
-"nearest" means — chromatic, or a major or minor key. Undo and redo cover every gesture, and
-the arrow keys nudge by a semitone, or by a tenth of one with shift held.
+Dragging a body moves the note; without shift held it lands on the nearest degree of the chosen
+scale, with shift it moves freely. Dragging where two bodies meet moves the boundary between
+them, and dragging empty grid draws a band that selects what it touches. Shift or command adds
+to a selection, and a tool given nothing selected acts on every note. Split cuts a note where it
+is clicked and Glue joins a note to the one after it. On the panel, Shape says how much of the
+sung contour survives, the scale button chooses what "nearest" means, Snap puts the selection on
+the nearest degrees and Reset puts it back the way it was sung. Undo and redo cover every
+gesture, and the arrow keys nudge by a semitone, or by a tenth of one with shift held.
 
-A note selected on its own carries three controls above it, the way PitchNet's do. The outer
-two tilt the note from its edges toward its middle, which is how a scoop into a note or a fall
-out of it is put there or taken away; the middle one is the same shaping the Shape slider does,
-dragged in place. All three are held rather than clicked, and all three are undoable.
+A note selected on its own carries three controls above it, the way PitchNet's do. The outer two
+tilt the note from its edges toward its middle, which is how a scoop into a note or a fall out of
+it is put there or taken away; the middle one is the same shaping the Shape slider does, dragged
+in place. All three are held rather than clicked, and all three are undoable.
 
 The wheel scrolls the grid, and zooms when it is over the lane that labels the axis: over the
-keyboard it zooms the pitch, over the ruler or the waveform it zooms the time, and in both
-cases the point under the mouse is the point that stays still. Command and the wheel zoom
-wherever the mouse is. While the host is playing, a line follows its transport through the
-region on show.
+note names it zooms the pitch, over the ruler it zooms the time, and in both cases the point
+under the mouse is the point that stays still. Command and the wheel zoom wherever the mouse is.
+While the host is playing, a line follows its transport through the region on show.
 
 An edit re-renders through the vocoder like any other setting, arriving progressively, so the
 edited note is audible before the rest of the region has finished. Editing needs the notes and
-the region, so it is offered under ARA only; loaded as an insert the editor still draws.
+the region, so it is offered under ARA only; loaded as an insert the roll still draws.
 
 The panel's neutrals are warm and its one saturated colour is red, which is why a failure is
 reported in amber: at a glance an alert has to look like something other than a selection.

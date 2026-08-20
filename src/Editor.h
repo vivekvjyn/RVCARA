@@ -3,15 +3,17 @@
 #include "Processor.h"
 
 #include "ara/DocumentController.h"
+#include "ui/OverviewStrip.h"
 #include "ui/PanelLookAndFeel.h"
 #include "ui/PitchCurveView.h"
+#include "ui/PropertyPanel.h"
 
 #include <juce_gui_basics/juce_gui_basics.h>
 
 namespace rvcara
 {
-/** @brief The panel: a header carrying the model selector, the pitch editor, and a footer
-           reporting state. The selector is the only control on it.
+/** @brief The window: a header carrying the wordmark, the tools and the history, the piano roll
+           and its property panel below that, and the take at a glance along the bottom.
 */
 class Editor final : public juce::AudioProcessorEditor,
                      public juce::AudioProcessorEditorARAExtension,
@@ -49,25 +51,43 @@ private:
     [[nodiscard]] Report describeCapture() const;
     [[nodiscard]] ConversionModification* getFocusedModification() const;
     [[nodiscard]] juce::String describeLoadedVoice() const;
+    [[nodiscard]] juce::String describeVoiceDetail() const;
 
-    /** @brief What the toolbar says about note detection for the region on show. */
+    /** @brief What the panel says about note detection for the region on show. */
     [[nodiscard]] static juce::String describeNotes (const ConversionModification& modification);
 
     void applyPitchEdit (const PitchEdit& edit);
 
     void refresh();
     void showVoiceMenu();
+    void showScaleMenu();
     void applyVoice (const juce::String& name);
+    void applyScale (int root, int mode);
+    void chooseTool (PitchTrack::Tool tool);
 
     void paintHeader (juce::Graphics& graphics, juce::Rectangle<int> bounds) const;
-    void paintFooter (juce::Graphics& graphics, juce::Rectangle<int> bounds) const;
 
     Processor& processorReference;
 
     PanelLookAndFeel lookAndFeel;
-    juce::TextButton voiceButton;
+
+    juce::TextButton selectButton { "Select" };
+    juce::TextButton splitButton { "Split" };
+    juce::TextButton glueButton { "Glue" };
+    juce::TextButton undoButton { "Undo" };
+    juce::TextButton redoButton { "Redo" };
+
     PitchCurveView pitchCurveView;
+    PropertyPanel propertyPanel;
+    OverviewStrip overviewStrip;
+
     Report report;
+
+    juce::Rectangle<int> headerBounds;
+    juce::Rectangle<int> toolCapsule;
+
+    int scaleRoot { 0 };
+    int scaleMode { 0 };
 
     /** @brief The region the editor is showing, so an edit lands on what the user was looking at. */
     ConversionModification* shownModification { nullptr };

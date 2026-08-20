@@ -1,6 +1,6 @@
 #pragma once
 
-#include "ara/ConversionModification.h"
+#include "common/ConversionResult.h"
 
 #include <functional>
 #include <optional>
@@ -10,10 +10,10 @@
 
 namespace rvcara
 {
-/** @brief The pitch editor's grid: one row per semitone, a block per note the segmenter found,
-           the melody the voice sang drawn over them and the take's own melody behind, with the
-           converted waveform on the middle C line. Its size follows the zoom, so the viewport
-           scrolls it.
+/** @brief The pitch editor's grid: one row per semitone, a body per note the segmenter found
+           whose thickness is how loud the voice was there, the take drawn behind them as a
+           silhouette, and the melody drawn over the top. Its size follows the zoom, so the
+           viewport scrolls it.
 
     Dragging a block moves the note relative to what was sung rather than onto an absolute
     pitch, which is what lets an untouched note come back out of the vocoder unchanged.
@@ -27,13 +27,10 @@ public:
     static constexpr int highestNote = 84;
     static constexpr int numRows = highestNote - lowestNote + 1;
 
-    /** @brief The row the waveform is drawn on, which is middle C. */
-    static constexpr int waveformNote = 60;
-
-    static constexpr float minimumPixelsPerSecond = 16.0f;
-    static constexpr float maximumPixelsPerSecond = 320.0f;
-    static constexpr float minimumRowHeight = 3.0f;
-    static constexpr float maximumRowHeight = 26.0f;
+    static constexpr float minimumPixelsPerSecond = 20.0f;
+    static constexpr float maximumPixelsPerSecond = 640.0f;
+    static constexpr float minimumRowHeight = 7.0f;
+    static constexpr float maximumRowHeight = 64.0f;
 
     /** @brief What a click does. */
     enum class Tool
@@ -193,7 +190,7 @@ private:
 
     void paintRows (juce::Graphics& graphics) const;
     void paintTimeGrid (juce::Graphics& graphics) const;
-    void paintVoice (juce::Graphics& graphics) const;
+    void paintTake (juce::Graphics& graphics) const;
     void paintNotes (juce::Graphics& graphics) const;
     void paintHandles (juce::Graphics& graphics) const;
     void paintPlayhead (juce::Graphics& graphics) const;
@@ -233,8 +230,8 @@ private:
 
     double playheadSeconds { -1.0 };
 
-    float pixelsPerSecond { 78.0f };
-    float rowHeight { 9.0f };
+    float pixelsPerSecond { 130.0f };
+    float rowHeight { 26.0f };
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (PitchTrack)
 };

@@ -4,7 +4,7 @@
 
 namespace rvcara
 {
-/** @brief The plug-in's visual house style: one palette, one type scale, flat surfaces. */
+/** @brief The plug-in's visual house style: one palette, one type scale, rounded surfaces. */
 class PanelLookAndFeel final : public juce::LookAndFeel_V4
 {
 public:
@@ -18,44 +18,54 @@ public:
     */
     struct Palette
     {
-        inline static const juce::Colour ground { 0xff17100f };
-        inline static const juce::Colour bar { 0xff211714 };
-        inline static const juce::Colour well { 0xff0f0a09 };
-        inline static const juce::Colour edge { 0xff402c28 };
-        inline static const juce::Colour rule { 0xff281c19 };
-        inline static const juce::Colour text { 0xfff4ebec };
-        inline static const juce::Colour dimText { 0xff9c8781 };
+        inline static const juce::Colour ground { 0xff141010 };
+        inline static const juce::Colour bar { 0xff1c1616 };
+        inline static const juce::Colour card { 0xff231b1b };
+        inline static const juce::Colour well { 0xff100c0c };
+        inline static const juce::Colour edge { 0xff3a2b2b };
+        inline static const juce::Colour rule { 0xff241b1b };
+        inline static const juce::Colour text { 0xfff6eeed };
+        inline static const juce::Colour dimText { 0xff9c8a88 };
         inline static const juce::Colour accent { 0xffff4d5e };
-        inline static const juce::Colour accentDim { 0xffb03040 };
-        inline static const juce::Colour noteBlock { 0xff4e2020 };
-        inline static const juce::Colour silhouette { 0xff3c2622 };
-        inline static const juce::Colour whiteKey { 0xffe4d6d2 };
-        inline static const juce::Colour blackKey { 0xff211714 };
-        inline static const juce::Colour blackKeyRow { 0xff0b0706 };
+        inline static const juce::Colour accentDim { 0xff8f2b38 };
+        inline static const juce::Colour silhouette { 0xff33262a };
         inline static const juce::Colour alert { 0xffffb454 };
 
         /** @brief The take as it was sung, kept neutral so the edit is the coloured thing. */
         inline static const juce::Colour sungCurve { 0xff8d7b76 };
+
+        /** @brief The melody the voice actually sang, drawn over everything. */
+        inline static const juce::Colour editedCurve { 0xfffff2f0 };
+
+        /** @brief A note's body, from its middle out, as it drifts off the nearest degree. */
+        inline static const juce::Colour inTuneCentre { 0xffff5f6d };
+        inline static const juce::Colour inTuneSide { 0xffb02434 };
+        inline static const juce::Colour offCentre { 0xffffb45c };
+        inline static const juce::Colour offSide { 0xffc06a18 };
     };
 
-    /** @brief The four type sizes, in points. */
+    /** @brief The type sizes, in points. */
     struct TypeScale
     {
-        static constexpr float title = 16.0f;
-        static constexpr float value = 12.5f;
-        static constexpr float label = 10.0f;
-        static constexpr float caption = 11.5f;
+        static constexpr float title = 19.0f;
+        static constexpr float heading = 12.0f;
+        static constexpr float value = 13.5f;
+        static constexpr float label = 11.0f;
+        static constexpr float caption = 13.0f;
     };
 
     /** @brief Panel metrics, in logical pixels. */
     struct Metrics
     {
-        static constexpr int headerHeight = 42;
-        static constexpr int footerHeight = 26;
-        static constexpr int margin = 10;
-        static constexpr int gap = 8;
+        static constexpr int headerHeight = 56;
+        static constexpr int panelWidth = 236;
+        static constexpr int overviewHeight = 74;
+        static constexpr int controlHeight = 34;
+        static constexpr int margin = 14;
+        static constexpr int gap = 10;
+        static constexpr float corner = 7.0f;
         static constexpr float hairline = 1.0f;
-        static constexpr float tracking = 1.4f;
+        static constexpr float tracking = 1.0f;
     };
 
     /** @brief Draws letter-spaced text, which JUCE has no direct support for.
@@ -79,6 +89,16 @@ public:
     [[nodiscard]] static float getTrackedTextWidth (const juce::String& text,
                                                     float fontHeight,
                                                     float tracking);
+
+    /** @brief Draws one of the panel's cards, which is what groups the controls.
+        @param graphics  Where to draw.
+        @param bounds    The whole card, heading included.
+        @param heading   Drawn along the card's top edge, or empty for a plain card.
+        @return What is left inside the card for its contents.
+    */
+    static juce::Rectangle<int> drawCard (juce::Graphics& graphics,
+                                          juce::Rectangle<int> bounds,
+                                          const juce::String& heading);
 
     void drawButtonBackground (juce::Graphics& graphics,
                                juce::Button& button,

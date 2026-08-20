@@ -10,21 +10,38 @@ namespace
     using TypeScale = PanelLookAndFeel::TypeScale;
     using Metrics = PanelLookAndFeel::Metrics;
 
-    constexpr int defaultWidth = 980;
-    constexpr int defaultHeight = 572;
-    constexpr int minimumWidth = 700;
-    constexpr int minimumHeight = 409;
-    constexpr int maximumWidth = 1960;
-    constexpr int maximumHeight = 1144;
+    constexpr int defaultWidth = 1180;
+    constexpr int defaultHeight = 720;
+    constexpr int minimumWidth = 880;
+    constexpr int minimumHeight = 560;
+    constexpr int maximumWidth = 2600;
+    constexpr int maximumHeight = 1600;
 
     constexpr int refreshHz = 15;
-    constexpr int voiceButtonWidth = 220;
+    constexpr int toolButtonWidth = 80;
+    constexpr int historyButtonWidth = 68;
+    constexpr int toolRadioGroup = 1;
     constexpr int rescanItemId = 10000;
 
     const char* qualifierGap = "   ";
 
     const char* bypassCaption = "The Bypass parameter is on, so RVCARA is passing the source "
                                 "through unchanged.\nTurn it off in the host's parameter list.";
+
+    /** @brief The scales snapping can land on: everything, then the two the ear expects. */
+    struct Scale
+    {
+        const char* name;
+        int degreeMask;
+    };
+
+    const Scale scales[] {
+        { "Chromatic", 0xfff },
+        { "Major", 0b101010110101 },
+        { "Minor", 0b010101101101 },
+    };
+
+    const char* pitchClassNames[] { "C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B" };
 
     juce::String describeEntry (const VoiceModelLibrary::Entry& entry)
     {
@@ -47,12 +64,42 @@ Editor::Editor (Processor& processorToUse)
 {
     setLookAndFeel (&lookAndFeel);
 
-    voiceButton.onClick = [this] { showVoiceMenu(); };
-    voiceButton.setTriggeredOnMouseDown (true);
-    addAndMakeVisible (voiceButton);
+    const auto addTool = [this] (juce::TextButton& button, PitchTrack::Tool tool)
+    {
+        button.setClickingTogglesState (true);
+        button.setRadioGroupId (toolRadioGroup);
+        button.onClick = [this, tool] { chooseTool (tool); };
+        addAndMakeVisible (button);
+    };
+
+    addTool (selectButton, PitchTrack::Tool::select);
+    addTool (splitButton, PitchTrack::Tool::split);
+    addTool (glueButton, PitchTrack::Tool::glue);
+
+    selectButton.setToggleState (true, juce::dontSendNotification);
+
+    undoButton.onClick = [this] { pitchCurveView.getTrack().undo(); refresh(); };
+    redoButton.onClick = [this] { pitchCurveView.getTrack().redo(); refresh(); };
+    addAndMakeVisible (undoButton);
+    addAndMakeVisible (redoButton);
 
     pitchCurveView.onEditChanged = [this] (const PitchEdit& edit) { applyPitchEdit (edit); };
+    pitchCurveView.onSelectionChanged = [this] { refresh(); };
     addAndMakeVisible (pitchCurveView);
+
+    propertyPanel.onVoiceClicked = [this] { showVoiceMenu(); };
+    propertyPanel.onScaleClicked = [this] { showScaleMenu(); };
+    propertyPanel.onShapeChanged = [this] (float shape)
+    {
+        pitchCurveView.getTrack().setSelectionDepth (shape);
+        refresh();
+    };
+    propertyPanel.onSnapClicked = [this] { pitchCurveView.getTrack().snapSelection(); refresh(); };
+    propertyPanel.onResetClicked = [this] { pitchCurveView.getTrack().resetSelection(); refresh(); };
+    addAndMakeVisible (propertyPanel);
+
+    overviewStrip.onScrubbed = [this] (double) {};
+    addAndMakeVisible (overviewStrip);
 
     if (auto* documentController = processorReference.getConversionDocumentController())
         documentController->addListener (this);
@@ -60,10 +107,6 @@ Editor::Editor (Processor& processorToUse)
     refresh();
 
     setResizeLimits (minimumWidth, minimumHeight, maximumWidth, maximumHeight);
-
-    if (auto* boundsConstrainer = getConstrainer())
-        boundsConstrainer->setFixedAspectRatio (static_cast<double> (defaultWidth) / defaultHeight);
-
     setSize (defaultWidth, defaultHeight);
 
     startTimerHz (refreshHz);
@@ -79,6 +122,11 @@ Editor::~Editor()
     setLookAndFeel (nullptr);
 }
 
+void Editor::chooseTool (PitchTrack::Tool tool)
+{
+    pitchCurveView.getTrack().setTool (tool);
+}
+
 juce::String Editor::describeLoadedVoice() const
 {
     auto& loader = processorReference.getVoiceLoader();
@@ -87,13 +135,23 @@ juce::String Editor::describeLoadedVoice() const
         return "Loading " + loader.getRequestedName();
 
     if (auto voice = loader.getVoice())
-    {
-        const auto rate = voice->getManifest().modelSampleRate;
-        return voice->getName()
-             + (rate > 0 ? qualifierGap + juce::String (rate / 1000) + " kHz" : juce::String());
-    }
+        return voice->getName();
 
     return "No model";
+}
+
+juce::String Editor::describeVoiceDetail() const
+{
+    auto& loader = processorReference.getVoiceLoader();
+
+    if (auto voice = loader.getVoice())
+    {
+        const auto rate = voice->getManifest().modelSampleRate;
+        return (rate > 0 ? juce::String (rate / 1000) + " kHz" : juce::String())
+             + (isRenderingThroughARA() ? juce::String ("   ARA") : juce::String ("   INSERT"));
+    }
+
+    return VoiceModelLibrary::getUserModelDirectory().getFullPathName();
 }
 
 void Editor::showVoiceMenu()
@@ -125,9 +183,9 @@ void Editor::showVoiceMenu()
     menu.addItem (rescanItemId, "Rescan");
 
     menu.showMenuAsync (juce::PopupMenu::Options {}
-                            .withTargetComponent (voiceButton)
-                            .withMinimumWidth (voiceButton.getWidth())
-                            .withStandardItemHeight (26),
+                            .withTargetComponent (propertyPanel)
+                            .withMinimumWidth (Metrics::panelWidth - Metrics::gap * 2)
+                            .withStandardItemHeight (30),
                         [this, entries] (int chosenId)
                         {
                             if (chosenId == rescanItemId)
@@ -142,6 +200,47 @@ void Editor::showVoiceMenu()
                             if (chosenIndex >= 0 && chosenIndex < static_cast<int> (entries.size()))
                                 applyVoice (entries[static_cast<std::size_t> (chosenIndex)].name);
                         });
+}
+
+void Editor::showScaleMenu()
+{
+    juce::PopupMenu menu;
+    menu.setLookAndFeel (&lookAndFeel);
+
+    menu.addItem (1, scales[0].name, true, scaleMode == 0);
+
+    for (int mode = 1; mode < static_cast<int> (std::size (scales)); ++mode)
+    {
+        juce::PopupMenu roots;
+
+        for (int root = 0; root < 12; ++root)
+            roots.addItem (mode * 12 + root + 2,
+                           juce::String (pitchClassNames[root]),
+                           true,
+                           scaleMode == mode && scaleRoot == root);
+
+        menu.addSubMenu (scales[static_cast<std::size_t> (mode)].name, roots);
+    }
+
+    menu.showMenuAsync (juce::PopupMenu::Options {}
+                            .withTargetComponent (propertyPanel)
+                            .withStandardItemHeight (28),
+                        [this] (int chosen)
+                        {
+                            if (chosen == 1)
+                                applyScale (0, 0);
+                            else if (chosen > 1)
+                                applyScale ((chosen - 2) % 12, (chosen - 2) / 12);
+                        });
+}
+
+void Editor::applyScale (int root, int mode)
+{
+    scaleRoot = root;
+    scaleMode = mode;
+
+    pitchCurveView.getTrack().setScale (root, scales[static_cast<std::size_t> (mode)].degreeMask);
+    refresh();
 }
 
 void Editor::applyVoice (const juce::String& name)
@@ -400,29 +499,32 @@ void Editor::applyPitchEdit (const PitchEdit& edit)
 
     if (documentController != nullptr && shownModification != nullptr)
         documentController->applyPitchEdit (*shownModification, edit);
+
+    refresh();
 }
 
 void Editor::refresh()
 {
     report = describeState();
-    voiceButton.setButtonText (describeLoadedVoice());
 
     shownModification = isRenderingThroughARA() ? getFocusedModification() : nullptr;
 
-    pitchCurveView.setConversion (shownModification != nullptr
-                                      ? shownModification->getConversion()
-                                      : (isRenderingThroughARA()
-                                             ? nullptr
-                                             : processorReference.getInsertConverter().getConversion()));
+    const auto conversion = shownModification != nullptr
+                              ? shownModification->getConversion()
+                              : (isRenderingThroughARA()
+                                     ? nullptr
+                                     : processorReference.getInsertConverter().getConversion());
 
+    pitchCurveView.setConversion (conversion);
     pitchCurveView.setEditingEnabled (shownModification != nullptr);
-    pitchCurveView.setPitchEdit (shownModification != nullptr ? shownModification->getPitchEdit() : PitchEdit {});
-    pitchCurveView.setNoteStatus (shownModification != nullptr ? describeNotes (*shownModification)
-                                                              : juce::String ("Editing needs ARA"));
-
+    pitchCurveView.setPitchEdit (shownModification != nullptr ? shownModification->getPitchEdit()
+                                                              : PitchEdit {});
     pitchCurveView.setPlayheadSeconds (
         shownModification != nullptr ? processorReference.getPlayheadInModification (*shownModification)
                                      : -1.0);
+
+    overviewStrip.setConversion (conversion);
+    overviewStrip.setPitchEdit (pitchCurveView.getTrack().getPitchEdit());
 
     if (shownModification != nullptr
         && report.caption.isEmpty()
@@ -432,6 +534,36 @@ void Editor::refresh()
     }
 
     pitchCurveView.setCaption (report.caption, report.isAlert);
+
+    auto& editorTrack = pitchCurveView.getTrack();
+    const auto hasNotes = ! editorTrack.getPitchEdit().notes.empty();
+    const auto canEdit = shownModification != nullptr && hasNotes;
+
+    for (auto* button : { &selectButton, &splitButton, &glueButton })
+        button->setEnabled (canEdit);
+
+    undoButton.setEnabled (canEdit && editorTrack.canUndo());
+    redoButton.setEnabled (canEdit && editorTrack.canRedo());
+
+    PropertyPanel::State state;
+    state.voiceName = describeLoadedVoice();
+    state.voiceDetail = describeVoiceDetail();
+    state.status = report.status;
+    state.statusDetail = report.detail;
+    state.noteStatus = shownModification != nullptr ? describeNotes (*shownModification)
+                                                    : juce::String ("Editing needs ARA");
+    state.progress = report.progress;
+    state.isBusy = report.isBusy;
+    state.isAlert = report.isAlert;
+    state.canEdit = canEdit;
+    state.numSelected = editorTrack.getNumSelected();
+    state.shape = editorTrack.getSelectionDepth();
+    state.scaleName = scaleMode == 0
+                        ? juce::String (scales[0].name)
+                        : juce::String (pitchClassNames[scaleRoot]) + " "
+                              + scales[static_cast<std::size_t> (scaleMode)].name;
+
+    propertyPanel.setState (state);
     repaint();
 }
 
@@ -443,78 +575,30 @@ void Editor::paintHeader (juce::Graphics& graphics, juce::Rectangle<int> bounds)
     graphics.setColour (Palette::bar);
     graphics.fillRect (bounds);
 
-    graphics.setColour (Palette::accent);
-    graphics.fillRect (bounds.getX(), bounds.getBottom() - 2, bounds.getWidth(), 2);
+    graphics.setColour (Palette::edge);
+    graphics.fillRect (bounds.getX(), bounds.getBottom() - 1, bounds.getWidth(), 1);
 
     auto textBounds = bounds.reduced (Metrics::margin, 0).toFloat();
+
+    const juce::Rectangle<float> mark { textBounds.getX(), textBounds.getCentreY() - 5.0f, 10.0f, 10.0f };
+
+    graphics.setColour (Palette::accent);
+    graphics.fillRoundedRectangle (mark, 2.5f);
+
+    textBounds.removeFromLeft (mark.getWidth() + 10.0f);
 
     PanelLookAndFeel::drawTrackedText (graphics,
                                        "RVCARA",
                                        textBounds,
                                        juce::Justification::left,
                                        TypeScale::title,
-                                       Metrics::tracking + 1.0f,
+                                       Metrics::tracking + 1.5f,
                                        Palette::text);
 
-    textBounds.removeFromLeft (PanelLookAndFeel::getTrackedTextWidth ("RVCARA",
-                                                                     TypeScale::title,
-                                                                     Metrics::tracking + 1.0f)
-                               + 12.0f);
-
-    PanelLookAndFeel::drawTrackedText (graphics,
-                                       isRenderingThroughARA() ? "ARA" : "INSERT",
-                                       textBounds,
-                                       juce::Justification::left,
-                                       TypeScale::label,
-                                       Metrics::tracking,
-                                       Palette::dimText);
-}
-
-void Editor::paintFooter (juce::Graphics& graphics, juce::Rectangle<int> bounds) const
-{
-    graphics.setColour (Palette::bar);
-    graphics.fillRect (bounds);
-
-    graphics.setColour (Palette::rule);
-    graphics.fillRect (bounds.getX(), bounds.getY(), bounds.getWidth(), 1);
-
-    auto textBounds = bounds.reduced (Metrics::margin, 0).toFloat();
-
-    const auto lampColour = report.isAlert ? Palette::alert
-                          : report.isBusy  ? Palette::accent
-                                           : Palette::dimText;
-
-    const auto lamp = juce::Rectangle<float> { textBounds.getX(), textBounds.getCentreY() - 3.0f, 6.0f, 6.0f };
-
-    graphics.setColour (lampColour);
-    graphics.fillEllipse (lamp);
-
-    textBounds.removeFromLeft (lamp.getWidth() + 9.0f);
-
-    PanelLookAndFeel::drawTrackedText (graphics,
-                                       report.status.toUpperCase(),
-                                       textBounds,
-                                       juce::Justification::left,
-                                       TypeScale::label,
-                                       Metrics::tracking,
-                                       report.isAlert ? Palette::alert : Palette::text);
-
-    if (report.detail.isNotEmpty())
-        PanelLookAndFeel::drawTrackedText (graphics,
-                                           report.detail.toUpperCase(),
-                                           textBounds,
-                                           juce::Justification::right,
-                                           TypeScale::label,
-                                           Metrics::tracking,
-                                           Palette::dimText);
-
-    if (report.isBusy && report.progress > 0.0f)
+    if (! toolCapsule.isEmpty())
     {
-        graphics.setColour (Palette::accent);
-        graphics.fillRect (bounds.getX(),
-                           bounds.getY(),
-                           juce::roundToInt (static_cast<float> (bounds.getWidth()) * report.progress),
-                           1);
+        graphics.setColour (Palette::well);
+        graphics.fillRoundedRectangle (toolCapsule.toFloat(), Metrics::corner + 2.0f);
     }
 }
 
@@ -522,20 +606,37 @@ void Editor::paint (juce::Graphics& graphics)
 {
     graphics.fillAll (Palette::ground);
 
-    paintHeader (graphics, getLocalBounds().removeFromTop (Metrics::headerHeight));
-    paintFooter (graphics, getLocalBounds().removeFromBottom (Metrics::footerHeight));
+    paintHeader (graphics, headerBounds);
 }
 
 void Editor::resized()
 {
     auto bounds = getLocalBounds();
 
-    auto headerBounds = bounds.removeFromTop (Metrics::headerHeight).reduced (Metrics::margin, 8);
-    voiceButton.setBounds (headerBounds.removeFromRight (
-        juce::jmin (voiceButtonWidth, headerBounds.getWidth())));
+    headerBounds = bounds.removeFromTop (Metrics::headerHeight);
 
-    bounds.removeFromBottom (Metrics::footerHeight);
-    pitchCurveView.setBounds (bounds.reduced (Metrics::margin, Metrics::gap));
+    {
+        auto row = headerBounds.reduced (Metrics::margin, 0);
+        const auto capsuleWidth = toolButtonWidth * 3 + 8;
+
+        toolCapsule = row.withSizeKeepingCentre (capsuleWidth, Metrics::controlHeight + 8);
+
+        auto tools = toolCapsule.reduced (4, 4);
+        selectButton.setBounds (tools.removeFromLeft (toolButtonWidth));
+        splitButton.setBounds (tools.removeFromLeft (toolButtonWidth));
+        glueButton.setBounds (tools.removeFromLeft (toolButtonWidth));
+
+        auto history = row.removeFromRight (historyButtonWidth * 2 + Metrics::gap)
+                          .withSizeKeepingCentre (historyButtonWidth * 2 + Metrics::gap,
+                                                  Metrics::controlHeight);
+        undoButton.setBounds (history.removeFromLeft (historyButtonWidth));
+        history.removeFromLeft (Metrics::gap);
+        redoButton.setBounds (history);
+    }
+
+    propertyPanel.setBounds (bounds.removeFromRight (Metrics::panelWidth));
+    overviewStrip.setBounds (bounds.removeFromBottom (Metrics::overviewHeight));
+    pitchCurveView.setBounds (bounds);
 }
 
 } // namespace rvcara

@@ -13,40 +13,37 @@ namespace
     using TypeScale = PanelLookAndFeel::TypeScale;
     using Metrics = PanelLookAndFeel::Metrics;
 
-    bool isBlackKey (int midiNote)
-    {
-        static const bool black[] = { false, true, false, true, false, false, true, false, true, false, true, false };
-        return black[static_cast<std::size_t> (((midiNote % 12) + 12) % 12)];
-    }
-
-    juce::String describeOctave (int midiNote)
-    {
-        return "C" + juce::String (midiNote / 12 - 1);
-    }
-
-    constexpr int toolRadioGroup = 1;
-
     constexpr float zoomPerWheelNotch = 0.3f;
-
-    /** @brief The scales snapping can land on: everything, then the two the ear expects. */
-    struct Scale
-    {
-        const char* name;
-        int degreeMask;
-    };
-
-    const Scale scales[] {
-        { "Chromatic", 0xfff },
-        { "Major", 0b101010110101 },
-        { "Minor", 0b010101101101 },
-    };
 
     const char* pitchClassNames[] { "C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B" };
 
+    juce::String describeNote (int midiNote)
+    {
+        return juce::String (pitchClassNames[static_cast<std::size_t> (((midiNote % 12) + 12) % 12)])
+             + juce::String (midiNote / 12 - 1);
+    }
+
+    juce::String describeTime (double seconds, double step)
+    {
+        const auto whole = static_cast<int> (seconds);
+        auto text = juce::String (whole / 60) + ":" + juce::String (whole % 60).paddedLeft ('0', 2);
+
+        if (step < 1.0)
+            text += juce::String (seconds - std::floor (seconds), 1).substring (1);
+
+        return text;
+    }
+
+    bool isNatural (int midiNote)
+    {
+        static const bool natural[] = { true, false, true, false, true, true, false, true, false, true, false, true };
+        return natural[static_cast<std::size_t> (((midiNote % 12) + 12) % 12)];
+    }
+
     double chooseRulerStep (float pixelsPerSecond)
     {
-        for (const auto candidate : { 0.5, 1.0, 2.0, 5.0, 10.0, 30.0 })
-            if (candidate * static_cast<double> (pixelsPerSecond) >= 56.0)
+        for (const auto candidate : { 0.25, 0.5, 1.0, 2.0, 5.0, 10.0, 30.0 })
+            if (candidate * static_cast<double> (pixelsPerSecond) >= 78.0)
                 return candidate;
 
         return 60.0;
@@ -65,85 +62,59 @@ PitchCurveView::PitchCurveView()
 
     track.onEditChanged = [this] (const PitchEdit& edit)
     {
-        updateToolbar();
-
         if (onEditChanged != nullptr)
             onEditChanged (edit);
     };
 
-    track.onSelectionChanged = [this] { updateToolbar(); };
-
-    const auto addTool = [this] (juce::TextButton& button, PitchTrack::Tool tool)
+    track.onSelectionChanged = [this]
     {
-        button.setClickingTogglesState (true);
-        button.setRadioGroupId (toolRadioGroup);
-        button.onClick = [this, tool] { chooseTool (tool); };
-        addAndMakeVisible (button);
+        if (onSelectionChanged != nullptr)
+            onSelectionChanged();
     };
-
-    addTool (selectButton, PitchTrack::Tool::select);
-    addTool (splitButton, PitchTrack::Tool::split);
-    addTool (glueButton, PitchTrack::Tool::glue);
-
-    selectButton.setToggleState (true, juce::dontSendNotification);
-
-    const auto addAction = [this] (juce::TextButton& button, std::function<void()> action)
-    {
-        button.onClick = std::move (action);
-        addAndMakeVisible (button);
-    };
-
-    addAction (snapButton, [this] { track.snapSelection(); updateToolbar(); });
-    addAction (resetButton, [this] { track.resetSelection(); updateToolbar(); });
-    addAction (undoButton, [this] { track.undo(); updateToolbar(); });
-    addAction (redoButton, [this] { track.redo(); updateToolbar(); });
-
-    scaleButton.onClick = [this] { showScaleMenu(); };
-    scaleButton.setTriggeredOnMouseDown (true);
-    addAndMakeVisible (scaleButton);
 
     track.onZoomRequested = [this] (juce::Point<float> factor, juce::Point<float> anchor)
     {
         applyZoomAround (factor, anchor);
     };
 
-    shapeSlider.setRange (0.0, 2.0);
-    shapeSlider.setValue (1.0, juce::dontSendNotification);
-    shapeSlider.setDoubleClickReturnValue (true, 1.0);
-    shapeSlider.onDragEnd = [this] { applySelectionDepth(); };
-    shapeSlider.onValueChange = [this]
+    const auto addZoom = [this] (juce::Slider& slider, double minimum, double maximum, double value)
     {
-        if (! shapeSlider.isMouseButtonDown())
-            applySelectionDepth();
-    };
-    addAndMakeVisible (shapeSlider);
-
-    const auto addScaler = [this] (juce::Slider& scaler, double minimum, double maximum, double value)
-    {
-        scaler.setRange (minimum, maximum);
-        scaler.setValue (value, juce::dontSendNotification);
-        scaler.setDoubleClickReturnValue (true, value);
-        scaler.onValueChange = [this] { applyZoom(); };
-        addAndMakeVisible (scaler);
+        slider.setRange (minimum, maximum);
+        slider.setValue (value, juce::dontSendNotification);
+        slider.setDoubleClickReturnValue (true, value);
+        slider.onValueChange = [this] { applyZoom(); };
+        addAndMakeVisible (slider);
     };
 
-    addScaler (horizontalScaler,
-               PitchTrack::minimumPixelsPerSecond,
-               PitchTrack::maximumPixelsPerSecond,
-               track.getPixelsPerSecond());
+    addZoom (verticalZoom, PitchTrack::minimumRowHeight, PitchTrack::maximumRowHeight,
+             track.getRowHeight());
 
-    addScaler (verticalScaler,
-               PitchTrack::minimumRowHeight,
-               PitchTrack::maximumRowHeight,
-               track.getRowHeight());
+    addZoom (horizontalZoom, PitchTrack::minimumPixelsPerSecond, PitchTrack::maximumPixelsPerSecond,
+             track.getPixelsPerSecond());
 
-    updateToolbar();
+    fitButton.onClick = [this] { zoomToFit(); };
+    addAndMakeVisible (fitButton);
+}
+
+void PitchCurveView::setConversion (ConversionPointer newConversion)
+{
+    if (conversion == newConversion)
+        return;
+
+    conversion = newConversion;
+    track.setConversion (std::move (newConversion));
+    applyZoom();
+
+    if (! hasScrolledToContent && conversion != nullptr)
+    {
+        hasScrolledToContent = true;
+        zoomToFit();
+    }
 }
 
 void PitchCurveView::setPitchEdit (PitchEdit edit)
 {
     track.setPitchEdit (std::move (edit));
-    updateToolbar();
 }
 
 void PitchCurveView::setEditingEnabled (bool shouldBeEnabled)
@@ -153,16 +124,6 @@ void PitchCurveView::setEditingEnabled (bool shouldBeEnabled)
 
     isEditingEnabled = shouldBeEnabled;
     track.setInterceptsMouseClicks (shouldBeEnabled, shouldBeEnabled);
-    updateToolbar();
-    repaint();
-}
-
-void PitchCurveView::setNoteStatus (const juce::String& status)
-{
-    if (noteStatus == status)
-        return;
-
-    noteStatus = status;
     repaint();
 }
 
@@ -176,49 +137,45 @@ void PitchCurveView::setPlayheadSeconds (double seconds)
     repaint();
 }
 
-void PitchCurveView::showScaleMenu()
+void PitchCurveView::setCaption (const juce::String& newCaption, bool isAlert)
 {
-    juce::PopupMenu menu;
-    menu.setLookAndFeel (&getLookAndFeel());
+    if (caption == newCaption && isCaptionAlert == isAlert)
+        return;
 
-    menu.addItem (1, scales[0].name, true, scaleMode == 0);
-
-    for (int mode = 1; mode < static_cast<int> (std::size (scales)); ++mode)
-    {
-        juce::PopupMenu roots;
-
-        for (int root = 0; root < 12; ++root)
-            roots.addItem (mode * 12 + root + 2,
-                           juce::String (pitchClassNames[root]),
-                           true,
-                           scaleMode == mode && scaleRoot == root);
-
-        menu.addSubMenu (scales[static_cast<std::size_t> (mode)].name, roots);
-    }
-
-    menu.showMenuAsync (juce::PopupMenu::Options {}
-                            .withTargetComponent (scaleButton)
-                            .withMinimumWidth (scaleButton.getWidth())
-                            .withStandardItemHeight (24),
-                        [this] (int chosen)
-                        {
-                            if (chosen == 1)
-                                applyScale (0, 0);
-                            else if (chosen > 1)
-                                applyScale ((chosen - 2) % 12, (chosen - 2) / 12);
-                        });
+    caption = newCaption;
+    isCaptionAlert = isAlert;
+    repaint();
 }
 
-void PitchCurveView::applyScale (int root, int mode)
+void PitchCurveView::zoomToFit()
 {
-    scaleRoot = root;
-    scaleMode = mode;
+    if (const auto seconds = track.getSeconds(); seconds > 0.0)
+    {
+        const auto wanted = static_cast<double> (viewport.getMaximumVisibleWidth()) / seconds;
+        horizontalZoom.setValue (wanted, juce::dontSendNotification);
+    }
 
-    const auto& scale = scales[static_cast<std::size_t> (mode)];
-    track.setScale (root, scale.degreeMask);
+    applyZoom();
+    scrollToContent();
+}
 
-    scaleButton.setButtonText (mode == 0 ? juce::String (scale.name)
-                                         : juce::String (pitchClassNames[root]) + " " + scale.name);
+void PitchCurveView::scrollToContent()
+{
+    const auto centre = track.getRowCentre (static_cast<float> (track.getCentreNote()));
+    const auto visibleHeight = static_cast<float> (viewport.getMaximumVisibleHeight());
+
+    viewport.setViewPosition (0, juce::roundToInt (centre - visibleHeight * 0.5f));
+}
+
+void PitchCurveView::applyZoom()
+{
+    track.setZoom (static_cast<float> (horizontalZoom.getValue()),
+                   static_cast<float> (verticalZoom.getValue()));
+
+    const auto size = track.getPreferredSize (viewport.getMaximumVisibleWidth());
+    track.setSize (size.x, std::max (size.y, viewport.getMaximumVisibleHeight()));
+
+    repaint();
 }
 
 void PitchCurveView::applyZoomAround (juce::Point<float> factor, juce::Point<float> anchor)
@@ -229,10 +186,10 @@ void PitchCurveView::applyZoomAround (juce::Point<float> factor, juce::Point<flo
     const juce::Point<float> viewOffset { anchor.x - static_cast<float> (viewport.getViewPositionX()),
                                           anchor.y - static_cast<float> (viewport.getViewPositionY()) };
 
-    horizontalScaler.setValue (static_cast<double> (track.getPixelsPerSecond() * factor.x),
-                               juce::dontSendNotification);
-    verticalScaler.setValue (static_cast<double> (track.getRowHeight() * factor.y),
+    horizontalZoom.setValue (static_cast<double> (track.getPixelsPerSecond() * factor.x),
                              juce::dontSendNotification);
+    verticalZoom.setValue (static_cast<double> (track.getRowHeight() * factor.y),
+                           juce::dontSendNotification);
     applyZoom();
 
     viewport.setViewPosition (
@@ -247,7 +204,7 @@ void PitchCurveView::mouseWheelMove (const juce::MouseEvent& event, const juce::
     const auto factor = 1.0f + wheel.deltaY * zoomPerWheelNotch;
     const auto position = event.getPosition();
 
-    if (keyboardBounds.contains (position))
+    if (gutterBounds.contains (position))
     {
         applyZoomAround ({ 1.0f, factor },
                          { 0.0f, static_cast<float> (position.y - viewport.getY()
@@ -255,180 +212,35 @@ void PitchCurveView::mouseWheelMove (const juce::MouseEvent& event, const juce::
         return;
     }
 
-    if (rulerBounds.contains (position) || waveformBounds.contains (position))
-    {
+    if (rulerBounds.contains (position))
         applyZoomAround ({ factor, 1.0f },
                          { static_cast<float> (position.x - viewport.getX()
                                                + viewport.getViewPositionX()), 0.0f });
-    }
-}
-
-void PitchCurveView::chooseTool (PitchTrack::Tool tool)
-{
-    track.setTool (tool);
-}
-
-void PitchCurveView::applySelectionDepth()
-{
-    track.setSelectionDepth (static_cast<float> (shapeSlider.getValue()));
-    updateToolbar();
-}
-
-void PitchCurveView::updateToolbar()
-{
-    const auto hasNotes = ! track.getPitchEdit().notes.empty();
-    const auto canEdit = isEditingEnabled && hasNotes;
-
-    for (auto* button : { &selectButton, &splitButton, &glueButton, &snapButton, &resetButton })
-        button->setEnabled (canEdit);
-
-    undoButton.setEnabled (canEdit && track.canUndo());
-    redoButton.setEnabled (canEdit && track.canRedo());
-
-    shapeSlider.setEnabled (canEdit);
-
-    if (! shapeSlider.isMouseButtonDown())
-        shapeSlider.setValue (static_cast<double> (track.getSelectionDepth()), juce::dontSendNotification);
-}
-
-void PitchCurveView::setConversion (ConversionPointer newConversion)
-{
-    if (conversion == newConversion)
-        return;
-
-    const auto isFirst = conversion == nullptr;
-
-    conversion = newConversion;
-    track.setConversion (std::move (newConversion));
-    rebuildWaveform();
-    applyZoom();
-
-    if (isFirst)
-        scrollToContent();
-}
-
-void PitchCurveView::scrollToContent()
-{
-    const auto centre = track.getRowCentre (track.getCentreNote());
-    const auto visibleHeight = static_cast<float> (viewport.getMaximumVisibleHeight());
-
-    viewport.setViewPosition (viewport.getViewPositionX(),
-                              juce::roundToInt (centre - visibleHeight * 0.5f));
-}
-
-void PitchCurveView::setCaption (const juce::String& newCaption, bool isAlert)
-{
-    if (caption == newCaption && isCaptionAlert == isAlert)
-        return;
-
-    caption = newCaption;
-    isCaptionAlert = isAlert;
-    repaint();
-}
-
-void PitchCurveView::rebuildWaveform()
-{
-    waveform.clear();
-
-    if (conversion == nullptr || conversion->samples.empty())
-        return;
-
-    const auto numSamples = static_cast<int> (conversion->samples.size());
-    const auto numPoints = std::min (waveformResolution, numSamples);
-    const auto samplesPerPoint = std::max (numSamples / numPoints, 1);
-
-    waveform.resize (static_cast<std::size_t> (numPoints), 0.0f);
-
-    for (int pointIndex = 0; pointIndex < numPoints; ++pointIndex)
-    {
-        const auto first = pointIndex * samplesPerPoint;
-        const auto last = std::min (first + samplesPerPoint, numSamples);
-
-        auto peak = 0.0f;
-
-        for (int sampleIndex = first; sampleIndex < last; ++sampleIndex)
-            peak = std::max (peak, std::abs (conversion->samples[static_cast<std::size_t> (sampleIndex)]));
-
-        waveform[static_cast<std::size_t> (pointIndex)] = peak;
-    }
-}
-
-void PitchCurveView::applyZoom()
-{
-    track.setZoom (static_cast<float> (horizontalScaler.getValue()),
-                   static_cast<float> (verticalScaler.getValue()));
-
-    const auto size = track.getPreferredSize (viewport.getMaximumVisibleWidth());
-    track.setSize (size.x, std::max (size.y, viewport.getMaximumVisibleHeight()));
-
-    repaint();
 }
 
 void PitchCurveView::resized()
 {
-    auto bounds = getLocalBounds().reduced (1);
+    auto bounds = getLocalBounds();
 
-    toolbarBounds = bounds.removeFromTop (toolbarHeight);
-    auto toolbarRow = toolbarBounds.reduced (Metrics::gap, 3);
+    auto bottomRail = bounds.removeFromBottom (zoomRailHeight);
+    auto rightRail = bounds.removeFromRight (zoomRailWidth);
 
-    const auto place = [&toolbarRow] (juce::Component& component, int width)
-    {
-        component.setBounds (toolbarRow.removeFromLeft (width).withTrimmedRight (3));
-    };
-
-    place (selectButton, toolButtonWidth);
-    place (splitButton, toolButtonWidth);
-    place (glueButton, toolButtonWidth);
-    toolbarRow.removeFromLeft (Metrics::gap);
-    place (snapButton, toolButtonWidth);
-    place (resetButton, toolButtonWidth);
-    toolbarRow.removeFromLeft (Metrics::gap);
-    place (undoButton, toolButtonWidth);
-    place (redoButton, toolButtonWidth);
-    toolbarRow.removeFromLeft (Metrics::gap);
-    shapeLabelBounds = toolbarRow.removeFromLeft (44);
-    place (shapeSlider, 96);
-    toolbarRow.removeFromLeft (Metrics::gap);
-    place (scaleButton, scaleButtonWidth);
-
-    noteStatusBounds = toolbarRow;
-
-    auto scalerRow = bounds.removeFromBottom (scalerHeight);
-    scalerRow.removeFromLeft (keyboardWidth);
-    verticalScaler.setBounds (scalerRow.removeFromRight (88).reduced (4, 3));
-    pitchLabelBounds = scalerRow.removeFromRight (42);
-    horizontalScaler.setBounds (scalerRow.removeFromRight (88).reduced (4, 3));
-    timeLabelBounds = scalerRow.removeFromRight (38);
-
-    rulerBounds = bounds.removeFromTop (rulerHeight).withTrimmedLeft (keyboardWidth);
-    waveformBounds = bounds.removeFromBottom (waveformHeight).withTrimmedLeft (keyboardWidth);
-    keyboardBounds = bounds.removeFromLeft (keyboardWidth);
+    rulerBounds = bounds.removeFromTop (rulerHeight).withTrimmedLeft (gutterWidth);
+    gutterBounds = bounds.removeFromLeft (gutterWidth);
 
     viewport.setBounds (bounds);
+
+    rightRail.removeFromTop (rulerHeight);
+    verticalZoom.setBounds (rightRail.withSizeKeepingCentre (
+        rightRail.getWidth(), std::min (rightRail.getHeight() - Metrics::gap * 2, 150)));
+
+    fitButton.setBounds (bottomRail.removeFromLeft (gutterWidth).reduced (3, 3));
+    horizontalZoom.setBounds (bottomRail.reduced (Metrics::gap, 7));
+
     applyZoom();
 }
 
-void PitchCurveView::paintToolbar (juce::Graphics& graphics, juce::Rectangle<int> bounds) const
-{
-    graphics.setColour (Palette::bar);
-    graphics.fillRect (bounds);
-
-    graphics.setColour (Palette::edge);
-    graphics.fillRect (static_cast<float> (bounds.getX()),
-                       static_cast<float> (bounds.getBottom()) - Metrics::hairline,
-                       static_cast<float> (bounds.getWidth()),
-                       Metrics::hairline);
-
-    PanelLookAndFeel::drawTrackedText (graphics, "SHAPE", shapeLabelBounds.toFloat(),
-                                       juce::Justification::left, TypeScale::label,
-                                       Metrics::tracking * 0.5f, Palette::dimText);
-
-    PanelLookAndFeel::drawTrackedText (graphics, noteStatus.toUpperCase(), noteStatusBounds.toFloat(),
-                                       juce::Justification::right, TypeScale::label,
-                                       Metrics::tracking * 0.5f, Palette::dimText);
-}
-
-void PitchCurveView::paintKeyboard (juce::Graphics& graphics, juce::Rectangle<int> bounds) const
+void PitchCurveView::paintGutter (juce::Graphics& graphics, juce::Rectangle<int> bounds) const
 {
     graphics.setColour (Palette::bar);
     graphics.fillRect (bounds);
@@ -438,28 +250,35 @@ void PitchCurveView::paintKeyboard (juce::Graphics& graphics, juce::Rectangle<in
 
     for (int midiNote = PitchTrack::lowestNote; midiNote <= PitchTrack::highestNote; ++midiNote)
     {
-        const auto centre = originY + track.getRowCentre (midiNote);
-        const juce::Rectangle<float> key { static_cast<float> (bounds.getX()),
-                                           centre - rowHeight * 0.5f,
-                                           static_cast<float> (bounds.getWidth())
-                                               * (isBlackKey (midiNote) ? 0.62f : 1.0f),
-                                           rowHeight };
+        const auto centre = originY + track.getRowCentre (static_cast<float> (midiNote));
 
-        if (key.getBottom() < static_cast<float> (bounds.getY())
-            || key.getY() > static_cast<float> (bounds.getBottom()))
+        if (centre + rowHeight < static_cast<float> (bounds.getY())
+            || centre - rowHeight > static_cast<float> (bounds.getBottom()))
             continue;
 
-        graphics.setColour (isBlackKey (midiNote) ? Palette::blackKey : Palette::whiteKey);
-        graphics.fillRect (key.reduced (0.0f, 0.5f));
+        graphics.setColour (Palette::rule);
+        graphics.fillRect (static_cast<float> (bounds.getX()),
+                           centre + rowHeight * 0.5f - Metrics::hairline,
+                           static_cast<float> (bounds.getWidth()),
+                           Metrics::hairline);
 
-        if (! isBlackKey (midiNote) && midiNote % 12 == 0 && rowHeight > 7.0f)
-            PanelLookAndFeel::drawTrackedText (graphics,
-                                               describeOctave (midiNote),
-                                               key.reduced (4.0f, 0.0f),
-                                               juce::Justification::left,
-                                               TypeScale::label,
-                                               0.0f,
-                                               Palette::ground);
+        const auto isShown = rowHeight >= 15.0f
+                          || (rowHeight >= 10.0f && isNatural (midiNote))
+                          || midiNote % 12 == 0;
+
+        if (! isShown)
+            continue;
+
+        PanelLookAndFeel::drawTrackedText (graphics,
+                                           describeNote (midiNote),
+                                           juce::Rectangle<float> { static_cast<float> (bounds.getX()),
+                                                                    centre - rowHeight * 0.5f,
+                                                                    static_cast<float> (bounds.getWidth()) - 10.0f,
+                                                                    rowHeight },
+                                           juce::Justification::right,
+                                           TypeScale::label,
+                                           0.0f,
+                                           midiNote % 12 == 0 ? Palette::text : Palette::dimText);
     }
 
     graphics.setColour (Palette::edge);
@@ -478,25 +297,26 @@ void PitchCurveView::paintRuler (juce::Graphics& graphics, juce::Rectangle<int> 
     const auto originX = static_cast<float> (bounds.getX() - viewport.getViewPositionX());
     const auto step = chooseRulerStep (pixelsPerSecond);
 
-    for (auto second = 0.0; second <= track.getSeconds(); second += step)
+    for (auto second = 0.0; second <= track.getSeconds() + step; second += step)
     {
         const auto x = originX + static_cast<float> (second * static_cast<double> (pixelsPerSecond));
 
-        if (x < static_cast<float> (bounds.getX()) || x > static_cast<float> (bounds.getRight()))
+        if (x < static_cast<float> (bounds.getX()) - 1.0f || x > static_cast<float> (bounds.getRight()))
             continue;
 
-        graphics.setColour (Palette::dimText);
-        graphics.fillRect (x, static_cast<float> (bounds.getBottom()) - 4.0f, Metrics::hairline, 4.0f);
+        graphics.setColour (Palette::edge);
+        graphics.fillRect (x, static_cast<float> (bounds.getY()), Metrics::hairline,
+                           static_cast<float> (bounds.getHeight()));
 
         PanelLookAndFeel::drawTrackedText (graphics,
-                                           juce::String (second, step < 1.0 ? 1 : 0) + "s",
-                                           juce::Rectangle<float> { x + 4.0f,
+                                           describeTime (second, step),
+                                           juce::Rectangle<float> { x + 7.0f,
                                                                     static_cast<float> (bounds.getY()),
-                                                                    46.0f,
+                                                                    60.0f,
                                                                     static_cast<float> (bounds.getHeight()) },
                                            juce::Justification::left,
                                            TypeScale::label,
-                                           Metrics::tracking * 0.5f,
+                                           0.0f,
                                            Palette::dimText);
     }
 
@@ -519,81 +339,32 @@ void PitchCurveView::paintRuler (juce::Graphics& graphics, juce::Rectangle<int> 
     }
 }
 
-void PitchCurveView::paintWaveform (juce::Graphics& graphics, juce::Rectangle<int> bounds) const
-{
-    graphics.setColour (Palette::well);
-    graphics.fillRect (bounds);
-
-    graphics.setColour (Palette::edge);
-    graphics.fillRect (static_cast<float> (bounds.getX()),
-                       static_cast<float> (bounds.getY()),
-                       static_cast<float> (bounds.getWidth()),
-                       Metrics::hairline);
-
-    if (waveform.empty() || track.getWidth() <= 0)
-        return;
-
-    const auto centreY = static_cast<float> (bounds.getCentreY());
-    const auto halfHeight = static_cast<float> (bounds.getHeight()) * 0.42f;
-    const auto trackWidth = static_cast<float> (track.getWidth());
-    const auto lastPoint = static_cast<float> (waveform.size() - 1);
-
-    graphics.setColour (Palette::silhouette);
-
-    for (int x = 0; x < bounds.getWidth(); ++x)
-    {
-        const auto position = static_cast<float> (x + viewport.getViewPositionX()) / trackWidth;
-
-        if (position < 0.0f || position > 1.0f)
-            continue;
-
-        const auto peak = waveform[static_cast<std::size_t> (position * lastPoint)];
-
-        graphics.fillRect (static_cast<float> (bounds.getX() + x),
-                           centreY - peak * halfHeight,
-                           1.0f,
-                           std::max (peak * halfHeight * 2.0f, 1.0f));
-    }
-}
-
 void PitchCurveView::paintCaption (juce::Graphics& graphics) const
 {
     const auto bounds = getLocalBounds().toFloat();
-    const auto plate = bounds.withSizeKeepingCentre (std::min (400.0f, bounds.getWidth() - 40.0f), 82.0f);
+    const auto plate = bounds.withSizeKeepingCentre (std::min (440.0f, bounds.getWidth() - 60.0f), 96.0f);
 
-    graphics.setColour (Palette::bar);
-    graphics.fillRect (plate);
-    graphics.setColour (Palette::edge);
-    graphics.drawRect (plate, Metrics::hairline);
+    graphics.setColour (Palette::card);
+    graphics.fillRoundedRectangle (plate, Metrics::corner);
+    graphics.setColour (isCaptionAlert ? Palette::alert : Palette::edge);
+    graphics.drawRoundedRectangle (plate.reduced (0.5f), Metrics::corner, Metrics::hairline);
 
     graphics.setColour (isCaptionAlert ? Palette::alert : Palette::dimText);
     graphics.setFont (juce::Font { juce::FontOptions { TypeScale::caption } });
-    graphics.drawFittedText (caption, plate.reduced (16.0f, 10.0f).toNearestInt(), juce::Justification::centred, 4);
+    graphics.drawFittedText (caption, plate.reduced (18.0f, 12.0f).toNearestInt(),
+                             juce::Justification::centred, 4);
 }
 
 void PitchCurveView::paint (juce::Graphics& graphics)
 {
     graphics.fillAll (Palette::well);
 
-    paintToolbar (graphics, toolbarBounds);
-    paintKeyboard (graphics, keyboardBounds);
+    paintGutter (graphics, gutterBounds);
     paintRuler (graphics, rulerBounds);
-    paintWaveform (graphics, waveformBounds);
 }
 
 void PitchCurveView::paintOverChildren (juce::Graphics& graphics)
 {
-    graphics.setColour (Palette::edge);
-    graphics.drawRect (getLocalBounds().toFloat(), Metrics::hairline);
-
-    PanelLookAndFeel::drawTrackedText (graphics, "TIME", timeLabelBounds.toFloat(),
-                                       juce::Justification::right, TypeScale::label,
-                                       Metrics::tracking * 0.5f, Palette::dimText);
-
-    PanelLookAndFeel::drawTrackedText (graphics, "PITCH", pitchLabelBounds.toFloat(),
-                                       juce::Justification::right, TypeScale::label,
-                                       Metrics::tracking * 0.5f, Palette::dimText);
-
     if (caption.isNotEmpty())
         paintCaption (graphics);
 }

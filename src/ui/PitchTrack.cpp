@@ -14,7 +14,17 @@ namespace
     using Palette = PanelLookAndFeel::Palette;
     using Metrics = PanelLookAndFeel::Metrics;
 
-    constexpr float waveformRows = 4.0f;
+    /** @brief How many rows a note's body spans when the voice is at its loudest there. */
+    constexpr float noteBodyRows = 3.0f;
+
+    /** @brief A note nobody sang loudly is still a note, so its body never closes completely. */
+    constexpr float minimumBodyFraction = 0.10f;
+
+    /** @brief The share of a note's length its body tapers over at each end, so it comes to a point. */
+    constexpr float taperFraction = 0.14f;
+
+    /** @brief Half a semitone off the nearest degree is as out of tune as the colour goes. */
+    constexpr float fullyOffSemitones = 0.5f;
 
     /** @brief How close to a note's edge a press has to be to drag the boundary instead. */
     constexpr float edgeGrabPixels = 4.0f;
@@ -28,10 +38,10 @@ namespace
     constexpr std::size_t maximumUndoSteps = 64;
 
     /** @brief The three controls PitchNet puts over a selected note, at the size it uses. */
-    constexpr float handleWidth = 26.0f;
-    constexpr float handleHeight = 11.0f;
-    constexpr float handleGap = 4.0f;
-    constexpr float handleLift = 4.0f;
+    constexpr float handleWidth = 34.0f;
+    constexpr float handleHeight = 16.0f;
+    constexpr float handleGap = 5.0f;
+    constexpr float handleLift = 6.0f;
 
     /** @brief How far a drag has to travel to move the shape control across its whole range. */
     constexpr float shapeSemitonesPerUnit = 4.0f;
@@ -48,6 +58,29 @@ namespace
     {
         static const bool black[] = { false, true, false, true, false, false, true, false, true, false, true, false };
         return black[static_cast<std::size_t> (((midiNote % 12) + 12) % 12)];
+    }
+
+    /** @brief Fills a shape the way a note body is filled: darker at its edges than its middle. */
+    void fillBody (juce::Graphics& graphics,
+                   const juce::Path& body,
+                   juce::Colour centre,
+                   juce::Colour side)
+    {
+        const auto bounds = body.getBounds();
+
+        if (bounds.getHeight() <= 1.0f)
+        {
+            graphics.setColour (centre);
+            graphics.fillPath (body);
+            return;
+        }
+
+        juce::ColourGradient gradient { side, bounds.getCentreX(), bounds.getY(),
+                                        side, bounds.getCentreX(), bounds.getBottom(), false };
+        gradient.addColour (0.5, centre);
+
+        graphics.setGradientFill (gradient);
+        graphics.fillPath (body);
     }
 } // namespace
 
@@ -165,8 +198,8 @@ float PitchTrack::getDisplayShift() const
 
 int PitchTrack::getCentreNote() const
 {
-    auto lowest = waveformNote;
-    auto highest = waveformNote;
+    auto lowest = highestNote;
+    auto highest = lowestNote;
 
     const auto include = [&lowest, &highest] (float midiNote)
     {
@@ -186,7 +219,7 @@ int PitchTrack::getCentreNote() const
         if (! note.isRest)
             include (note.getEditedMidiNote() + shift);
 
-    return (lowest + highest) / 2;
+    return lowest <= highest ? (lowest + highest) / 2 : (lowestNote + highestNote) / 2;
 }
 
 juce::Point<int> PitchTrack::getPreferredSize (int minimumWidth) const
@@ -242,28 +275,39 @@ juce::Rectangle<float> PitchTrack::getNoteBounds (const EditedNote& note) const
     const auto last = getXForSeconds (note.endSeconds);
     const auto centre = getRowCentre (note.getEditedMidiNote() + getDisplayShift());
 
-    return { first, centre - rowHeight * 0.5f, std::max (last - first, 1.0f), rowHeight };
+    return { first, centre - rowHeight * 0.5f, std::max (last - first, 2.0f), rowHeight };
 }
 
 int PitchTrack::getNoteAt (juce::Point<float> position) const
 {
-    for (int index = static_cast<int> (edit.notes.size()) - 1; index >= 0; --index)
+    // A body stands several rows tall, so the whole of it has to be grabbable; where two of them
+    // overlap the one whose own row is nearest the mouse wins.
+    const auto reach = std::max (rowHeight * noteBodyRows * 0.5f, minimumGrabHeight * 0.5f);
+
+    auto nearest = -1;
+    auto nearestDistance = reach;
+
+    for (int index = 0; index < static_cast<int> (edit.notes.size()); ++index)
     {
         const auto& note = edit.notes[static_cast<std::size_t> (index)];
 
         if (note.isRest)
             continue;
 
-        auto bounds = getNoteBounds (note);
+        const auto bounds = getNoteBounds (note).expanded (edgeGrabPixels, 0.0f);
 
-        if (bounds.getHeight() < minimumGrabHeight)
-            bounds = bounds.withSizeKeepingCentre (bounds.getWidth(), minimumGrabHeight);
+        if (position.x < bounds.getX() || position.x > bounds.getRight())
+            continue;
 
-        if (bounds.expanded (edgeGrabPixels, 0.0f).contains (position))
-            return index;
+        if (const auto distance = std::abs (position.y - bounds.getCentreY());
+            distance <= nearestDistance)
+        {
+            nearestDistance = distance;
+            nearest = index;
+        }
     }
 
-    return -1;
+    return nearest;
 }
 
 bool PitchTrack::isNearBoundary (const EditedNote& note, float x) const
@@ -300,7 +344,7 @@ juce::Rectangle<float> PitchTrack::getHandleBounds (const EditedNote& note, Hand
                                                   : 2.0f;
 
     return { left + (handleWidth + handleGap) * column,
-             bounds.getY() - handleHeight - handleLift,
+             bounds.getCentreY() - rowHeight * noteBodyRows * 0.5f - handleHeight - handleLift,
              handleWidth,
              handleHeight };
 }
@@ -681,7 +725,8 @@ void PitchTrack::mouseDrag (const juce::MouseEvent& event)
         if (band.getWidth() >= minimumBandPixels || band.getHeight() >= minimumBandPixels)
             for (std::size_t index = 0; index < edit.notes.size(); ++index)
                 if (! edit.notes[index].isRest
-                    && getNoteBounds (edit.notes[index]).expanded (0.0f, minimumGrabHeight * 0.5f)
+                    && getNoteBounds (edit.notes[index])
+                           .expanded (0.0f, rowHeight * noteBodyRows * 0.5f)
                            .intersects (band))
                     selection[index] = 1;
 
@@ -937,7 +982,7 @@ void PitchTrack::paintRows (juce::Graphics& graphics) const
 
         if (isBlackKey (midiNote))
         {
-            graphics.setColour (Palette::blackKeyRow);
+            graphics.setColour (Palette::well.brighter (0.10f));
             graphics.fillRect (0.0f, top, width, rowHeight);
         }
 
@@ -961,35 +1006,81 @@ void PitchTrack::paintTimeGrid (juce::Graphics& graphics) const
     }
 }
 
-void PitchTrack::paintVoice (juce::Graphics& graphics) const
+void PitchTrack::paintTake (juce::Graphics& graphics) const
 {
-    if (amplitude.empty())
+    if (amplitude.empty() || conversion == nullptr)
         return;
 
-    const auto centre = getRowCentre (static_cast<float> (waveformNote));
-    const auto halfHeight = rowHeight * waveformRows * 0.5f;
-    const auto numFrames = static_cast<int> (amplitude.size());
+    const auto& sung = conversion->sourceFundamentalFrequencyHz;
 
-    juce::Path ribbon;
-    ribbon.startNewSubPath (getXForFrame (0), centre);
+    if (sung.empty())
+        return;
+
+    const auto numFrames = std::min (static_cast<int> (amplitude.size()), static_cast<int> (sung.size()));
+    const auto halfHeight = rowHeight * noteBodyRows * 0.5f;
+    const auto shift = getDisplayShift();
+
+    juce::Path silhouette;
+    auto isDrawing = false;
+    auto firstFrame = 0;
+
+    const auto close = [&] (int lastFrame)
+    {
+        if (! isDrawing)
+            return;
+
+        for (int frameIndex = lastFrame; frameIndex >= firstFrame; --frameIndex)
+        {
+            const auto centre = getRowCentre (
+                static_cast<float> (hzToMidiNote (static_cast<double> (sung[static_cast<std::size_t> (frameIndex)])))
+                + shift);
+
+            silhouette.lineTo (getXForFrame (frameIndex),
+                               centre + amplitude[static_cast<std::size_t> (frameIndex)] * halfHeight);
+        }
+
+        silhouette.closeSubPath();
+        isDrawing = false;
+    };
 
     for (int frameIndex = 0; frameIndex < numFrames; ++frameIndex)
-        ribbon.lineTo (getXForFrame (frameIndex),
-                       centre - amplitude[static_cast<std::size_t> (frameIndex)] * halfHeight);
+    {
+        const auto frequencyHz = sung[static_cast<std::size_t> (frameIndex)];
 
-    for (int frameIndex = numFrames - 1; frameIndex >= 0; --frameIndex)
-        ribbon.lineTo (getXForFrame (frameIndex),
-                       centre + amplitude[static_cast<std::size_t> (frameIndex)] * halfHeight);
+        if (frequencyHz <= 0.0f)
+        {
+            close (frameIndex - 1);
+            continue;
+        }
 
-    ribbon.closeSubPath();
+        const auto centre = getRowCentre (
+            static_cast<float> (hzToMidiNote (static_cast<double> (frequencyHz))) + shift);
+        const auto peak = amplitude[static_cast<std::size_t> (frameIndex)] * halfHeight;
+
+        if (! isDrawing)
+        {
+            firstFrame = frameIndex;
+            silhouette.startNewSubPath (getXForFrame (frameIndex), centre - peak);
+            isDrawing = true;
+        }
+        else
+        {
+            silhouette.lineTo (getXForFrame (frameIndex), centre - peak);
+        }
+    }
+
+    close (numFrames - 1);
 
     graphics.setColour (Palette::silhouette);
-    graphics.fillPath (ribbon);
+    graphics.fillPath (silhouette);
 }
 
 void PitchTrack::paintNotes (juce::Graphics& graphics) const
 {
     const auto width = static_cast<float> (getWidth());
+    const auto shift = getDisplayShift();
+    const auto frameRate = conversion != nullptr ? conversion->pitchFrameRate : 0.0;
+    const auto halfHeight = rowHeight * noteBodyRows * 0.5f;
 
     for (std::size_t index = 0; index < edit.notes.size(); ++index)
     {
@@ -998,24 +1089,79 @@ void PitchTrack::paintNotes (juce::Graphics& graphics) const
         if (note.isRest)
             continue;
 
-        const auto bounds = getNoteBounds (note).reduced (0.0f, 0.5f);
+        const auto left = getXForSeconds (note.startSeconds);
+        const auto right = getXForSeconds (note.endSeconds);
 
-        if (bounds.getRight() < 0.0f || bounds.getX() > width)
+        if (right < 0.0f || left > width)
             continue;
 
-        const auto isSelected = index < selection.size() && selection[index] != 0;
-        const auto corner = std::min (2.5f, rowHeight * 0.4f);
+        const auto centre = getRowCentre (note.getEditedMidiNote() + shift);
 
-        graphics.setColour (isSelected ? Palette::accent.withAlpha (0.55f) : Palette::noteBlock);
-        graphics.fillRoundedRectangle (bounds, corner);
+        const auto first = frameRate > 0.0
+                         ? static_cast<int> (std::llround (note.startSeconds * frameRate)) : 0;
+        const auto last = frameRate > 0.0
+                        ? static_cast<int> (std::llround (note.endSeconds * frameRate)) : 0;
 
-        graphics.setColour (isSelected ? Palette::accent : Palette::accentDim);
-        graphics.drawRoundedRectangle (bounds, corner, Metrics::hairline);
+        const auto numNoteFrames = std::max (last - first, 1);
+        const auto taperFrames = std::max (1.0f, static_cast<float> (numNoteFrames) * taperFraction);
 
-        if (note.depth < 1.0f)
+        const auto peakAt = [&] (int frameIndex)
         {
-            graphics.setColour (Palette::accent.withAlpha (1.0f - note.depth * 0.5f));
-            graphics.fillRect (bounds.getX(), bounds.getCentreY() - 0.5f, bounds.getWidth(), 1.0f);
+            const auto peak = frameIndex >= 0 && frameIndex < static_cast<int> (amplitude.size())
+                                ? std::max (amplitude[static_cast<std::size_t> (frameIndex)],
+                                            minimumBodyFraction)
+                                : minimumBodyFraction;
+
+            const auto fromStart = static_cast<float> (frameIndex - first);
+            const auto fromEnd = static_cast<float> (last - 1 - frameIndex);
+            const auto taper = std::min ({ 1.0f, fromStart / taperFrames, fromEnd / taperFrames });
+
+            return peak * std::max (taper, 0.0f);
+        };
+
+        juce::Path body;
+
+        if (last > first && ! amplitude.empty())
+        {
+            body.startNewSubPath (left, centre - peakAt (first) * halfHeight);
+
+            for (int frameIndex = first + 1; frameIndex < last; ++frameIndex)
+                body.lineTo (getXForFrame (frameIndex), centre - peakAt (frameIndex) * halfHeight);
+
+            body.lineTo (right, centre - peakAt (last - 1) * halfHeight);
+            body.lineTo (right, centre + peakAt (last - 1) * halfHeight);
+
+            for (int frameIndex = last - 1; frameIndex > first; --frameIndex)
+                body.lineTo (getXForFrame (frameIndex), centre + peakAt (frameIndex) * halfHeight);
+
+            body.closeSubPath();
+        }
+        else
+        {
+            body.addRoundedRectangle (juce::Rectangle<float> { left, centre - halfHeight * minimumBodyFraction,
+                                                               std::max (right - left, 2.0f),
+                                                               halfHeight * minimumBodyFraction * 2.0f },
+                                      2.0f);
+        }
+
+        const auto heard = note.getEditedMidiNote() + shift;
+        const auto offBy = juce::jlimit (0.0f, 1.0f,
+                                         std::abs (heard - snapToScale (heard)) / fullyOffSemitones);
+
+        fillBody (graphics, body,
+                  Palette::inTuneCentre.interpolatedWith (Palette::offCentre, offBy),
+                  Palette::inTuneSide.interpolatedWith (Palette::offSide, offBy));
+
+        if (note.depth != 1.0f || note.tiltLeft != 0.0f || note.tiltRight != 0.0f)
+        {
+            graphics.setColour (Palette::editedCurve.withAlpha (0.5f));
+            graphics.strokePath (body, juce::PathStrokeType { 1.0f });
+        }
+
+        if (index < selection.size() && selection[index] != 0)
+        {
+            graphics.setColour (Palette::editedCurve);
+            graphics.drawRoundedRectangle (body.getBounds().expanded (2.0f), 3.0f, 1.4f);
         }
     }
 }
@@ -1037,13 +1183,13 @@ void PitchTrack::paintHandles (juce::Graphics& graphics) const
             return;
 
         graphics.setColour (isSet ? Palette::accent : Palette::bar);
-        graphics.fillRoundedRectangle (bounds, 2.0f);
+        graphics.fillRoundedRectangle (bounds, 4.0f);
 
-        graphics.setColour (Palette::accent);
-        graphics.drawRoundedRectangle (bounds, 2.0f, Metrics::hairline);
+        graphics.setColour (isSet ? Palette::accent : Palette::edge);
+        graphics.drawRoundedRectangle (bounds, 4.0f, Metrics::hairline);
 
         graphics.setColour (isSet ? Palette::ground : Palette::text);
-        graphics.setFont (juce::Font { juce::FontOptions { handleHeight - 1.0f } });
+        graphics.setFont (juce::Font { juce::FontOptions { handleHeight - 3.0f } });
         graphics.drawText (glyph, bounds, juce::Justification::centred, false);
     };
 
@@ -1058,7 +1204,8 @@ void PitchTrack::paintPlayhead (juce::Graphics& graphics) const
         return;
 
     graphics.setColour (Palette::accent);
-    graphics.fillRect (getXForSeconds (playheadSeconds), 0.0f, 1.0f, static_cast<float> (getHeight()));
+    graphics.fillRect (getXForSeconds (playheadSeconds) - 1.0f, 0.0f, 2.0f,
+                       static_cast<float> (getHeight()));
 }
 
 void PitchTrack::paintCurve (juce::Graphics& graphics,
@@ -1105,14 +1252,11 @@ void PitchTrack::paint (juce::Graphics& graphics)
 
     paintRows (graphics);
     paintTimeGrid (graphics);
-    paintVoice (graphics);
+    paintTake (graphics);
     paintNotes (graphics);
 
     if (conversion != nullptr)
-    {
-        paintCurve (graphics, conversion->sourceFundamentalFrequencyHz, Palette::sungCurve, 1.0f);
-        paintCurve (graphics, conversion->fundamentalFrequencyHz, Palette::accent, 1.8f);
-    }
+        paintCurve (graphics, conversion->fundamentalFrequencyHz, Palette::editedCurve, 1.8f);
 
     paintHandles (graphics);
     paintPlayhead (graphics);
