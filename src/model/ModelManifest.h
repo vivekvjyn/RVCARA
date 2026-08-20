@@ -84,14 +84,14 @@ struct ModelManifest
 
     juce::String contentEncoderFile;
     juce::String pitchEstimatorFile;
-    juce::String vocoderFile;
+    juce::String synthesizerFile;
 
     std::string contentEncoderInput;
     std::string contentEncoderOutput;
     std::string pitchEstimatorInput;
     std::string pitchEstimatorOutput;
-    std::vector<std::string> vocoderInputs;
-    std::string vocoderOutput;
+    std::vector<std::string> synthesizerInputs;
+    std::string synthesizerOutput;
 
     int contentSampleRate { 16000 };
     int contentFrameRate { 50 };

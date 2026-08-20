@@ -84,19 +84,28 @@ On Linux, JUCE needs ALSA, FreeType, Fontconfig, X11 and GL development packages
 
 @section voices Voices
 
-A voice is a directory under `res/models/<name>/` holding `vocoder.onnx` (the trained voice: a
-VITS flow into an NSF HiFi-GAN), `mel_filter_bank.bin`, `retrieval.bin` (the timbre codebook)
-and `manifest.json`.
+A voice is a directory under `res/models/<name>/` holding `synthesizer.onnx`, `retrieval.bin`
+(the timbre codebook) and `manifest.json`.
 
-Two of the graphs the pipeline runs are not the voice at all. The content encoder is
-ContentVec-initialised HuBERT and the pitch estimator is RMVPE; neither is fine-tuned per
-singer, and between them they are 740 MB of a voice's 1.2 GB. Each therefore gets a directory
+The synthesiser is RVC v2's `SynthesizerTrnMs768NSFsid` whole: a text encoder over the content
+features, a posterior encoder, a residual coupling flow, and only then `GeneratorNSF`, the NSF
+HiFi-GAN that makes the samples. Calling the file a vocoder named its last stage after the
+whole of it, so it is named for the model it is. A manifest that still says `vocoder` is read
+as it always was.
+
+Two of the graphs the pipeline runs are not the voice at all. The content encoder is ContentVec
+and the pitch estimator is RMVPE; neither is fine-tuned per singer, and between them they are 740 MB of a voice's 1.2 GB. Each therefore gets a directory
 of its own beside the voices, named for its model and laid out the way `GAME/` is:
 
 @code
-res/models/ContentVec/  config.json  hubert_base.onnx
+res/models/ContentVec/  config.json  contentvec.onnx
 res/models/RMVPE/       config.json  rmvpe.onnx  mel_filter_bank.bin
 @endcode
+
+RVC ships the encoder as `hubert_base.pt`, which is a misnomer it inherited: the weights are
+ContentVec, a HuBERT trained to leave the speaker out of its features, not Facebook's HuBERT.
+The directory and the file are named for the model rather than for RVC's filename, and a loose
+`hubert_base.onnx` beside the voices is still found.
 
 A model that is not the voice describes itself rather than being described by every voice that
 borrows it, which is what the `config.json` is for. rvcara::ContentEncoderManifest carries the
@@ -207,12 +216,12 @@ Measured stage by stage on a Ryzen 7 5800HS (8 cores) converting 37 seconds of v
 
 | Stage | Time | Share |
 | --- | --- | --- |
-| Vocoder | 15.05 s | 71.3% |
+| Synthesiser | 15.05 s | 71.3% |
 | Content encoder | 3.31 s | 15.7% |
 | Pitch estimator | 1.36 s | 6.4% |
 | Resamplers, retrieval, filter | 1.40 s | 6.7% |
 
-The vocoder's 400-times upsampling to 40 kHz is the whole cost; making everything else
+The synthesiser's 400-times upsampling to 40 kHz is the whole cost; making everything else
 infinitely fast would buy 7%. ONNX Runtime's intra-op thread count is set to the number of
 physical cores rather than its own default of hardware threads, which is 8% faster end to end.
 

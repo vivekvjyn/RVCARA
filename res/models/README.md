@@ -8,7 +8,7 @@ or shared application data directory, or anywhere named by `RVCARA_MODEL_PATH`.
 res/models/
     ContentVec/     content encoder, shared by every voice
         config.json
-        hubert_base.onnx
+        contentvec.onnx
     RMVPE/          pitch estimator, shared by every voice
         config.json
         rmvpe.onnx
@@ -18,12 +18,17 @@ res/models/
         encoder.onnx  segmenter.onnx  estimator.onnx  bd2dur.onnx  dur2bd.onnx
     <voice>/        one directory per voice
         manifest.json
-        vocoder.onnx
+        synthesizer.onnx
         retrieval.bin
 ```
 
 A directory is offered as a voice only when it holds a `manifest.json`, so the three shared
 models never appear in the selector.
+
+RVC ships the content encoder as `hubert_base.pt`, but the weights are ContentVec rather than
+Facebook's HuBERT, so both the directory and the file are named for the model. The voice's own
+graph is the whole of RVC's `SynthesizerTrnMs768NSFsid`, of which the NSF HiFi-GAN vocoder is
+only the last stage, so it is named for the model too.
 
 The content encoder and the pitch estimator are not trained per singer, which is why they are
 installed once rather than copied into every voice, and why each carries the configuration

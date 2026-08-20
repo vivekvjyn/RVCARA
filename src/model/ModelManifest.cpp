@@ -350,8 +350,14 @@ std::optional<ModelManifest> ModelManifest::parse (const juce::File& file, juce:
                manifest.contentEncoderOutput, error);
     readGraph (graphs, "pitchEstimator", manifest.pitchEstimatorFile, pitchInputs,
                manifest.pitchEstimatorOutput, error);
-    readGraph (graphs, "vocoder", manifest.vocoderFile, manifest.vocoderInputs,
-               manifest.vocoderOutput, error);
+    // Exports made before the graph was called by its own name still say "vocoder", which is
+    // only the last stage of it.
+    juce::String legacyName;
+
+    if (! readGraph (graphs, "synthesizer", manifest.synthesizerFile, manifest.synthesizerInputs,
+                     manifest.synthesizerOutput, legacyName))
+        readGraph (graphs, "vocoder", manifest.synthesizerFile, manifest.synthesizerInputs,
+                   manifest.synthesizerOutput, error);
 
     if (! contentInputs.empty())
         manifest.contentEncoderInput = contentInputs.front();

@@ -14,8 +14,11 @@ namespace
     /** @brief The names the two universal graphs carry upstream, used when one is installed
                loose beside the voices rather than in a directory of its own.
     */
-    constexpr const char* sharedContentEncoderFile = "hubert_base.onnx";
+    constexpr const char* sharedContentEncoderFile = "contentvec.onnx";
     constexpr const char* sharedPitchEstimatorFile = "rmvpe.onnx";
+
+    /** @brief What RVC calls the content encoder, which is a misnomer worth still answering to. */
+    constexpr const char* legacyContentEncoderFile = "hubert_base.onnx";
 
     constexpr const char* sharedConfigurationFile = "config.json";
 
@@ -61,8 +64,9 @@ namespace
             return { assetDirectory.getChildFile (shared->graphFile), std::move (shared) };
         }
 
-        if (const auto beside = VoiceModelLibrary::findAssetFile (named); beside.existsAsFile())
-            return { beside, std::nullopt };
+        for (const auto& loose : { named, sharedName })
+            if (const auto beside = VoiceModelLibrary::findAssetFile (loose); beside.existsAsFile())
+                return { beside, std::nullopt };
 
         return { VoiceModelLibrary::findAssetFile (sharedName), std::nullopt };
     }
@@ -119,8 +123,12 @@ std::unique_ptr<VoiceModel> VoiceModel::load (const juce::File& directory,
     model->manifest = std::move (*parsed);
     const auto& manifest = model->manifest;
 
-    const auto contentEncoder = findGraph<ContentEncoderManifest> (
+    auto contentEncoder = findGraph<ContentEncoderManifest> (
         directory, manifest.contentEncoderFile, sharedContentEncoderFile, error);
+
+    if (error.isEmpty() && ! contentEncoder.file.existsAsFile())
+        contentEncoder = findGraph<ContentEncoderManifest> (
+            directory, manifest.contentEncoderFile, legacyContentEncoderFile, error);
 
     if (error.isNotEmpty())
         return nullptr;
@@ -159,18 +167,19 @@ std::unique_ptr<VoiceModel> VoiceModel::load (const juce::File& directory,
     if (error.isNotEmpty())
         return nullptr;
 
-    if (! model->vocoder.load (directory.getChildFile (manifest.vocoderFile), numThreads))
+    if (! model->synthesizer.load (directory.getChildFile (manifest.synthesizerFile), numThreads))
     {
-        error = model->vocoder.getError();
+        error = model->synthesizer.getError();
         return nullptr;
     }
 
-    constexpr int expectedNumVocoderInputs = 6;
+    constexpr int expectedNumSynthesizerInputs = 6;
 
-    if (static_cast<int> (manifest.vocoderInputs.size()) != expectedNumVocoderInputs)
+    if (static_cast<int> (manifest.synthesizerInputs.size()) != expectedNumSynthesizerInputs)
     {
-        error = "vocoder declares " + juce::String (static_cast<int> (manifest.vocoderInputs.size()))
-              + " inputs, expected " + juce::String (expectedNumVocoderInputs);
+        error = "the synthesiser declares "
+              + juce::String (static_cast<int> (manifest.synthesizerInputs.size()))
+              + " inputs, expected " + juce::String (expectedNumSynthesizerInputs);
         return nullptr;
     }
 

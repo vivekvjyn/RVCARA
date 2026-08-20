@@ -1,9 +1,9 @@
 {
     "schemaVersion": 1,
     "model": "ContentVec",
-    "description": "ContentVec-initialised HuBERT, RVC's hubert_base, exported by RTVoice",
+    "description": "ContentVec, which RVC ships as hubert_base.pt; a HuBERT trained to drop the speaker",
     "graph": {
-        "file": "hubert_base.onnx",
+        "file": "contentvec.onnx",
         "input": "audio",
         "output": "features"
     },
