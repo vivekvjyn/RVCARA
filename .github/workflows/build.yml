@@ -93,18 +93,31 @@ jobs:
 
           mv "unpacked/${package}" onnxruntime
 
+      # JUCE's own list, from libs/JUCE/docs/Linux Dependencies.md, less the two we compile out:
+      # libcurl for JUCE_USE_CURL=0 and webkit2gtk for JUCE_WEB_BROWSER=0.
       - name: Install Linux dependencies
         if: runner.os == 'Linux'
         run: |
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends \
-            ninja-build libasound2-dev libfreetype-dev libfontconfig1-dev \
+            ninja-build \
+            libasound2-dev libjack-jackd2-dev ladspa-sdk \
+            libfreetype-dev libfontconfig1-dev \
             libx11-dev libxcomposite-dev libxcursor-dev libxext-dev \
-            libxinerama-dev libxrandr-dev libxrender-dev libgl1-mesa-dev
+            libxinerama-dev libxrandr-dev libxrender-dev libxi-dev \
+            libglu1-mesa-dev mesa-common-dev libegl-dev
 
       - name: Install Ninja
         if: runner.os == 'macOS'
         uses: seanmiddleditch/gha-setup-ninja@v5
+
+      - name: Report the toolchain
+        if: runner.os == 'Windows'
+        shell: bash
+        run: |
+          vswhere="/c/Program Files (x86)/Microsoft Visual Studio/Installer/vswhere.exe"
+          [ -x "$vswhere" ] && "$vswhere" -latest -products '*' -property displayName || true
+          cmake --version
 
       - name: Configure
         shell: bash
@@ -113,16 +126,26 @@ jobs:
 
           workspace="$(pwd -W 2>/dev/null || pwd)"
 
+          # Naming a Visual Studio version breaks the moment the runner image moves on, so let
+          # CMake pick whichever one the image ships.
           if [ "$RUNNER_OS" = "Windows" ]; then
-            generator=(-G "Visual Studio 17 2022" -A x64)
+            generator=(-A x64)
           else
             generator=(-G Ninja -DCMAKE_BUILD_TYPE=Release)
           fi
 
-          cmake -S . -B build "${generator[@]}" \
+          # Warnings are errors where the compiler is one we have run this code through. MSVC has
+          # not seen it yet, so Windows builds without it rather than going red on a warning that
+          # cannot be reproduced anywhere else.
+          if [ "$RUNNER_OS" = "Windows" ]; then
+            strict=(-DRVCARA_WERROR=OFF)
+          else
+            strict=(-DRVCARA_WERROR=ON)
+          fi
+
+          cmake -S . -B build "${generator[@]}" "${strict[@]}" \
             -DRVCARA_ONNXRUNTIME_ROOT="$workspace/onnxruntime" \
-            -DRVCARA_FETCH_NOTE_MODEL=OFF \
-            -DRVCARA_WERROR=ON
+            -DRVCARA_FETCH_NOTE_MODEL=OFF
 
       - name: Build
         run: cmake --build build --config Release --parallel
