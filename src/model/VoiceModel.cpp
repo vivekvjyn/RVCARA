@@ -4,6 +4,7 @@
 #include "model/VoiceModelLibrary.h"
 
 #include <algorithm>
+#include <cstddef>
 #include <optional>
 #include <vector>
 

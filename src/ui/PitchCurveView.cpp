@@ -4,6 +4,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <cstddef>
 
 namespace rvcara
 {
@@ -184,6 +185,23 @@ void PitchCurveView::zoomToFit()
 
     applyZoom();
     scrollToContent();
+}
+
+void PitchCurveView::scrollToSeconds (double centreSeconds)
+{
+    const auto half = static_cast<float> (viewport.getMaximumVisibleWidth()) * 0.5f;
+
+    viewport.setViewPosition (juce::roundToInt (track.getXForSeconds (centreSeconds) - half),
+                              viewport.getViewPositionY());
+}
+
+juce::Range<double> PitchCurveView::getVisibleTimeRange() const
+{
+    const auto start = track.getSecondsForX (static_cast<float> (viewport.getViewPositionX()));
+    const auto end = track.getSecondsForX (static_cast<float> (viewport.getViewPositionX()
+                                                               + viewport.getMaximumVisibleWidth()));
+
+    return { start, end };
 }
 
 void PitchCurveView::scrollToContent()

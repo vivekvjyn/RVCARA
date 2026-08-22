@@ -18,6 +18,7 @@ endif()
 
 option(RVCARA_BUILD_TESTS "Build the unit tests" ON)
 option(RVCARA_FETCH_NOTE_MODEL "Download the GAME note segmentation model if it is missing" ON)
+option(RVCARA_WERROR "Fail the build on a warning in RVCARA's own sources" OFF)
 
 set(RVCARA_NOTE_MODEL_VERSION "1.0.3" CACHE STRING
     "The openvpi/GAME release the note segmentation model is taken from")
@@ -109,7 +110,13 @@ endif()
 
 if(WIN32)
     set(onnxruntimeImplib "${onnxruntimeRoot}/lib/onnxruntime.lib")
-    set(onnxruntimeLibrary "${onnxruntimeRoot}/bin/onnxruntime.dll")
+
+    # Built from source the runtime installs into bin; the prebuilt archives keep it in lib.
+    if(EXISTS "${onnxruntimeRoot}/bin/onnxruntime.dll")
+        set(onnxruntimeLibrary "${onnxruntimeRoot}/bin/onnxruntime.dll")
+    else()
+        set(onnxruntimeLibrary "${onnxruntimeRoot}/lib/onnxruntime.dll")
+    endif()
 elseif(APPLE)
     set(onnxruntimeImplib "${onnxruntimeRoot}/lib/libonnxruntime.dylib")
     set(onnxruntimeLibrary "${onnxruntimeImplib}")
@@ -137,7 +144,10 @@ endfunction()
 set(rvcaraCopyOnnxRuntimeScript "${CMAKE_BINARY_DIR}/rvcara_copy_onnxruntime.cmake")
 
 file(WRITE "${rvcaraCopyOnnxRuntimeScript}" "\
-file(GLOB libraries \"\${libraryDir}/libonnxruntime*\")
+file(GLOB libraries
+    \"\${root}/lib/libonnxruntime*\"
+    \"\${root}/lib/onnxruntime*.dll\"
+    \"\${root}/bin/onnxruntime*.dll\")
 
 foreach(library \${libraries})
     if(NOT IS_DIRECTORY \"\${library}\")
@@ -159,17 +169,29 @@ function(rvcara_copy_onnxruntime_beside target)
         BUILD_WITH_INSTALL_RPATH TRUE
         INSTALL_RPATH "${loaderRelativePath}")
 
-    if(WIN32)
-        add_custom_command(TARGET ${target} PRE_LINK
-            COMMAND ${CMAKE_COMMAND} -E copy_if_different
-                    "${onnxruntimeLibrary}" "$<TARGET_FILE_DIR:${target}>" VERBATIM)
-    else()
-        add_custom_command(TARGET ${target} PRE_LINK
-            COMMAND ${CMAKE_COMMAND}
-                    "-DlibraryDir=${RVCARA_ONNXRUNTIME_LIBRARY_DIR}"
-                    "-Ddestination=$<TARGET_FILE_DIR:${target}>"
-                    -P "${rvcaraCopyOnnxRuntimeScript}" VERBATIM)
+    add_custom_command(TARGET ${target} PRE_LINK
+        COMMAND ${CMAKE_COMMAND}
+                "-Droot=${onnxruntimeRoot}"
+                "-Ddestination=$<TARGET_FILE_DIR:${target}>"
+                -P "${rvcaraCopyOnnxRuntimeScript}" VERBATIM)
+endfunction()
+
+# Warnings in this repository's own sources are errors when asked for; the framework's are not
+# ours to fix, so the flag goes on our files rather than on the targets they are built into.
+function(rvcara_fail_on_warnings)
+    if(NOT RVCARA_WERROR)
+        return()
     endif()
+
+    if(MSVC)
+        set(failFlag /WX)
+    else()
+        set(failFlag -Werror)
+    endif()
+
+    foreach(sourceFile ${ARGN})
+        set_property(SOURCE "${sourceFile}" APPEND PROPERTY COMPILE_OPTIONS ${failFlag})
+    endforeach()
 endfunction()
 
 foreach(submodule JUCE ARA_SDK googletest hnswlib)
@@ -210,16 +232,22 @@ function(rvcara_apply_strict_warnings)
         return()
     endif()
 
+    # -Wuseless-cast is GCC's alone: clang rejects the flag itself rather than the casts.
+    set(strictWarnings
+        -Wdouble-promotion      # float32 audio silently widened to double
+        -Wfloat-conversion
+        -Wconversion            # and every other implicit narrowing
+        -Wsign-conversion       # a negative index into a std::size_t
+        -Wold-style-cast
+        -Wcast-qual
+        -Wextra-semi)
+
+    if(CMAKE_CXX_COMPILER_ID STREQUAL "GNU")
+        list(APPEND strictWarnings -Wuseless-cast)
+    endif()
+
     foreach(sourceFile ${ARGN})
-        set_property(SOURCE "${sourceFile}" APPEND PROPERTY COMPILE_OPTIONS
-            -Wdouble-promotion      # float32 audio silently widened to double
-            -Wfloat-conversion
-            -Wconversion            # and every other implicit narrowing
-            -Wsign-conversion       # a negative index into a std::size_t
-            -Wold-style-cast
-            -Wuseless-cast
-            -Wcast-qual
-            -Wextra-semi)
+        set_property(SOURCE "${sourceFile}" APPEND PROPERTY COMPILE_OPTIONS ${strictWarnings})
     endforeach()
 endfunction()
 
@@ -332,9 +360,18 @@ target_link_libraries(RVCARA
         juce::juce_recommended_config_flags
         juce::juce_recommended_lto_flags)
 
+# JUCE asks for a bare -flto, which leaves GCC's driver announcing that it is linking serially.
+# Saying how many jobs it may use answers the question rather than hiding it.
+if(CMAKE_CXX_COMPILER_ID STREQUAL "GNU")
+    target_compile_options(RVCARA PRIVATE $<$<COMPILE_LANGUAGE:CXX>:-flto=auto>)
+    target_link_options(RVCARA PRIVATE -flto=auto)
+endif()
+
 rvcara_apply_strict_warnings(
     src/dsp/SincResampler.cpp
     src/dsp/ZeroPhaseFilter.cpp)
+
+rvcara_fail_on_warnings(${RVCARA_ENGINE_SOURCES} ${RVCARA_PLUGIN_SOURCES})
 
 foreach(format ${RVCARA_FORMATS})
     if(TARGET RVCARA_${format})

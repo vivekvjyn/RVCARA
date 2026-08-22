@@ -3,6 +3,7 @@ name: Build
 on:
   push:
     branches: [main]
+    tags: ['v*']
   pull_request:
   workflow_dispatch:
 
@@ -10,7 +11,40 @@ concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
+permissions:
+  contents: read
+
+env:
+  # Keep in step with libs/onnxruntime/VERSION_NUMBER. CI links the prebuilt release of that
+  # version rather than building the submodule, which takes 45 to 90 minutes per runner and
+  # wants more disk than a hosted one has. Local and release builds still build it from source.
+  ONNXRUNTIME_VERSION: 1.23.2
+
 jobs:
+  docs:
+    name: Docs
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: false
+
+      - name: Install Doxygen
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends doxygen graphviz
+
+      - name: Generate
+        working-directory: docs
+        run: doxygen Doxyfile
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: RVCARA-docs
+          path: docs/html
+          if-no-files-found: error
+
   build:
     name: ${{ matrix.name }}
     runs-on: ${{ matrix.os }}
@@ -20,40 +54,44 @@ jobs:
         include:
           - name: Linux
             os: ubuntu-latest
-            formats: VST3, LV2
+            package: onnxruntime-linux-x64
           - name: macOS
             os: macos-latest
-            formats: VST3, LV2, AU
+            package: onnxruntime-osx-universal2
           - name: Windows
             os: windows-latest
-            formats: VST3, LV2
+            package: onnxruntime-win-x64
 
     steps:
       - uses: actions/checkout@v4
         with:
           submodules: false
 
-      - name: Read the pinned ONNX Runtime commit
-        id: onnxruntime
-        shell: bash
-        run: echo "sha=$(git rev-parse HEAD:libs/onnxruntime)" >> "$GITHUB_OUTPUT"
-
-      - name: Restore the ONNX Runtime build
-        uses: actions/cache@v4
-        with:
-          path: build/onnxruntime-install
-          key: onnxruntime-${{ runner.os }}-${{ steps.onnxruntime.outputs.sha }}
-
       - name: Initialise submodules
-        shell: bash
         run: |
           git submodule update --init --depth 1 libs/ARA_SDK libs/JUCE libs/googletest libs/hnswlib
           git -C libs/ARA_SDK submodule update --init --depth 1 ARA_API ARA_Library
 
-          if [ ! -e build/onnxruntime-install/lib ]; then
-            git submodule update --init --depth 1 libs/onnxruntime
-            git -C libs/onnxruntime submodule update --init --depth 1 cmake/external/onnx
+      - name: Fetch ONNX Runtime
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          version="${ONNXRUNTIME_VERSION}"
+          package="${{ matrix.package }}-${version}"
+          archive="${package}$([ "$RUNNER_OS" = "Windows" ] && echo .zip || echo .tgz)"
+
+          curl -fsSL --retry 3 -o "$archive" \
+            "https://github.com/microsoft/onnxruntime/releases/download/v${version}/${archive}"
+
+          mkdir unpacked
+          if [ "$RUNNER_OS" = "Windows" ]; then
+            unzip -q "$archive" -d unpacked
+          else
+            tar xzf "$archive" -C unpacked
           fi
+
+          mv "unpacked/${package}" onnxruntime
 
       - name: Install Linux dependencies
         if: runner.os == 'Linux'
@@ -68,13 +106,11 @@ jobs:
         if: runner.os == 'macOS'
         uses: seanmiddleditch/gha-setup-ninja@v5
 
-      - uses: actions/setup-python@v5
-        with:
-          python-version: '3.12'
-
       - name: Configure
         shell: bash
         run: |
+          set -euo pipefail
+
           workspace="$(pwd -W 2>/dev/null || pwd)"
 
           if [ "$RUNNER_OS" = "Windows" ]; then
@@ -83,18 +119,36 @@ jobs:
             generator=(-G Ninja -DCMAKE_BUILD_TYPE=Release)
           fi
 
-          if [ -e build/onnxruntime-install/lib ]; then
-            generator+=(-DRVCARA_ONNXRUNTIME_ROOT="$workspace/build/onnxruntime-install")
-          fi
+          cmake -S . -B build "${generator[@]}" \
+            -DRVCARA_ONNXRUNTIME_ROOT="$workspace/onnxruntime" \
+            -DRVCARA_FETCH_NOTE_MODEL=OFF \
+            -DRVCARA_WERROR=ON
 
-          cmake -S . -B build "${generator[@]}"
-
-      - name: Build ${{ matrix.formats }}
+      - name: Build
         run: cmake --build build --config Release --parallel
 
       - name: Test
         run: ctest --test-dir build -C Release --output-on-failure
 
-      - name: List what was built
+      - name: Stage what was built
         shell: bash
-        run: find build/RVCARA_artefacts -maxdepth 3 -name "*.vst3" -o -maxdepth 3 -name "*.lv2" -o -maxdepth 3 -name "*.component"
+        run: |
+          set -euo pipefail
+
+          artefacts="build/RVCARA_artefacts/Release"
+          [ -d "$artefacts" ] || artefacts="build/RVCARA_artefacts"
+
+          mkdir -p staged
+          for format in VST3 LV2 AU Standalone; do
+            if [ -d "$artefacts/$format" ]; then
+              cp -R "$artefacts/$format" staged/
+            fi
+          done
+
+          find staged -maxdepth 2
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: RVCARA-${{ matrix.name }}
+          path: staged
+          if-no-files-found: error

@@ -51,6 +51,12 @@ public:
     /** @brief Fits the whole take across the roll and centres it on the sung range. */
     void zoomToFit();
 
+    /** @brief Scrolls so a moment of the take sits in the middle of the roll. */
+    void scrollToSeconds (double centreSeconds);
+
+    /** @brief The stretch of the take the roll is showing, for the overview's box. */
+    [[nodiscard]] juce::Range<double> getVisibleTimeRange() const;
+
     /** @brief Whether the take at a glance is shown under the roll. */
     std::function<void (bool)> onOverviewToggled;
 

@@ -25,7 +25,7 @@ public:
         int numSamples { 0 };
         double sampleRate { 44100.0 };
 
-        /** @brief The rate to render at. Zero renders at @ref sampleRate. */
+        /** @brief The rate to render at. Zero renders at the rate the samples came in at. */
         double outputSampleRate { 0.0 };
 
         ConversionSettings settings;

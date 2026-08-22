@@ -1,5 +1,6 @@
 #include "model/OnnxSession.h"
 
+#include <cstddef>
 #include <map>
 #include <utility>
 

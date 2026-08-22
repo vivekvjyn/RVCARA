@@ -2,6 +2,11 @@
 
 #include "model/VoiceModelLibrary.h"
 
+#include <cmath>
+#include <cstddef>
+#include <iterator>
+#include <utility>
+
 namespace rvcara
 {
 namespace
@@ -156,7 +161,12 @@ Editor::Editor (Processor& processorToUse)
     propertyPanel.onBrightnessChanged = [this] (double value) { brightness = value; repaint(); };
     addAndMakeVisible (propertyPanel);
 
-    overviewStrip.onScrubbed = [this] (double) {};
+    overviewStrip.onScrubbed = [this] (double centreSeconds)
+    {
+        pitchCurveView.scrollToSeconds (centreSeconds);
+        refresh();
+    };
+
     addAndMakeVisible (overviewStrip);
 
     if (auto* documentController = processorReference.getConversionDocumentController())
@@ -687,6 +697,9 @@ void Editor::refresh()
 
     overviewStrip.setConversion (conversion);
     overviewStrip.setPitchEdit (pitchCurveView.getTrack().getPitchEdit());
+
+    const auto visible = pitchCurveView.getVisibleTimeRange();
+    overviewStrip.setVisibleRange (visible.getStart(), visible.getEnd());
 
     if (shownModification != nullptr
         && report.caption.isEmpty()

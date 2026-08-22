@@ -2,6 +2,8 @@
 
 #include "ui/PanelLookAndFeel.h"
 
+#include <cstddef>
+
 namespace rvcara
 {
 namespace

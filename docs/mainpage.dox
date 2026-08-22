@@ -59,9 +59,14 @@ cmake --build build
 ctest --test-dir build --output-on-failure
 @endcode
 
-VST3 and LV2 are built everywhere and AU on macOS; the format list follows the host operating
-system, locally and in CI alike. Each artefact carries the ONNX Runtime shared library and its
-soname chain, with `$ORIGIN` in the runpath so they are found beside it.
+VST3, LV2 and a standalone application are built everywhere and AU on macOS; the format list
+follows the host operating system, locally and in CI alike. Each artefact carries the ONNX
+Runtime shared library and its soname chain, with `$ORIGIN` in the runpath so they are found
+beside it, which is why the built plug-ins can be downloaded from a CI run and used as they are.
+
+CI builds all three operating systems and publishes what each produced, and generates this
+documentation as a fourth job. Doxygen runs with `WARN_AS_ERROR`, so a broken reference fails
+the build rather than scrolling past.
 
 Every dependency is a submodule, ONNX Runtime included, so the commits this repository names
 are the whole of what it runs. That costs:
@@ -74,7 +79,15 @@ are the whole of what it runs. That costs:
   eigen and cpuinfo from `libs/onnxruntime/cmake/deps.txt`.
 - About 6 GB of disk and, at ten parallel jobs, around 8 GB of memory.
 
-`-DRVCARA_ONNXRUNTIME_ROOT=<path>` skips all of it and uses an existing installation.
+`-DRVCARA_ONNXRUNTIME_ROOT=<path>` skips all of it and uses an existing installation. That is
+what continuous integration does: a hosted runner has neither the ninety minutes nor the disk to
+build ONNX Runtime three times over, so CI links Microsoft's prebuilt release of the version the
+submodule is pinned to. The version is named once in `.github/workflows/build.yml` and has to be
+kept in step with `libs/onnxruntime/VERSION_NUMBER`.
+
+`-DRVCARA_WERROR=ON` turns a warning in this repository's own sources into an error, which is
+what CI builds with. The flag goes on our files rather than on the targets they are built into,
+because the framework's warnings are not ours to fix.
 
 The note segmentation model is a pretrained asset rather than source, so it cannot be a
 submodule. The configure step downloads GAME's 45 MB small ONNX release into `res/models/GAME`
